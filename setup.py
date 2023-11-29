@@ -20,8 +20,8 @@ setup(
   install_requires=[
     'einops>=0.7.0',
     'torch>=2.0',
-    'vector-quantize-pytorch',
-    'x-transformers'
+    'vector-quantize-pytorch>=1.11.7',
+    'x-transformers>=1.26.0'
   ],
   classifiers=[
     'Development Status :: 4 - Beta',
