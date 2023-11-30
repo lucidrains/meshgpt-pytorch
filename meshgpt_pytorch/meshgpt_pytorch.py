@@ -5,12 +5,14 @@ from torch.nn import Module, ModuleList
 from einops import rearrange, repeat, reduce
 from einops.layers.torch import Rearrange
 
-from x_transformer import (
+from x_transformers import (
     Decoder,
     AutoregressiveWrapper
 )
 
+from ema_pytorch import EMA
 from vector_quantize_pytorch import ResidualVQ
+
 from torch_geometric.nn.conv import SAGEConv
 
 # helper functions
