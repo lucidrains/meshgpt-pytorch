@@ -19,6 +19,7 @@ setup(
   ],
   install_requires=[
     'einops>=0.7.0',
+    'ema-pytorch',
     'torch>=2.0',
     'torch_geometric',
     'vector-quantize-pytorch>=1.11.7',
