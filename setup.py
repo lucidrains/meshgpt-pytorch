@@ -22,7 +22,7 @@ setup(
     'ema-pytorch',
     'torch>=2.0',
     'torch_geometric',
-    'vector-quantize-pytorch>=1.11.7',
+    'vector-quantize-pytorch>=1.11.8',
     'x-transformers>=1.26.0'
   ],
   classifiers=[
