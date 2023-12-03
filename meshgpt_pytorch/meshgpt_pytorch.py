@@ -4,6 +4,7 @@ from torch.nn import Module, ModuleList
 import torch.nn.functional as F
 
 from beartype import beartype
+from beartype.typing import Tuple
 
 from einops import rearrange, repeat, reduce
 from einops.layers.torch import Rearrange
@@ -29,6 +30,34 @@ from torch_geometric.nn.conv import SAGEConv
 
 def exists(v):
     return v is not None
+
+# tensor helper functions
+
+def discretize_coors(
+    t: Tensor,
+    *,
+    num_discrete: int = 128,
+    continuous_range: Tuple[float, float],
+) -> Tensor:
+
+    lo, hi = continuous_range
+    assert hi > lo
+
+    t = (t - lo) / (hi - lo)
+    return (t * (num_discrete - 1)).round().long()
+
+def undiscretize_coors(
+    t: Tensor,
+    *,
+    num_discrete: int = 128,
+    continuous_range = Tuple[float, float],
+) -> Tensor:
+
+    lo, hi = continuous_range
+    assert hi > lo
+
+    t = t.float() / (num_discrete - 1)
+    return t * (hi - lo) + lo
 
 # main classes
 

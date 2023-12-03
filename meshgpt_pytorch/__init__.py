@@ -1,1 +1,5 @@
-from meshgpt_pytorch.meshgpt_pytorch import MeshGPT
+
+from meshgpt_pytorch.meshgpt_pytorch import (
+    MeshAutoencoder,
+    MeshGPT
+)
