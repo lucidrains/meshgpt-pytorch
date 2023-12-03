@@ -33,30 +33,36 @@ def exists(v):
 
 # tensor helper functions
 
+@beartype
 def discretize_coors(
     t: Tensor,
     *,
-    num_discrete: int = 128,
     continuous_range: Tuple[float, float],
+    num_discrete: int = 128
 ) -> Tensor:
-
     lo, hi = continuous_range
     assert hi > lo
 
     t = (t - lo) / (hi - lo)
-    return (t * (num_discrete - 1)).round().long()
+    t *= num_discrete
+    t -= 0.5
 
+    return t.round().long().clamp(min = 0, max = num_discrete - 1)
+
+@beartype
 def undiscretize_coors(
     t: Tensor,
     *,
-    num_discrete: int = 128,
     continuous_range = Tuple[float, float],
+    num_discrete: int = 128
 ) -> Tensor:
-
     lo, hi = continuous_range
     assert hi > lo
 
-    t = t.float() / (num_discrete - 1)
+    t = t.float()
+
+    t += 0.5
+    t /= num_discrete
     return t * (hi - lo) + lo
 
 # main classes
