@@ -48,3 +48,14 @@ Will also try to adopt this to molecular generation. Bonds will be the faces.
     primaryClass = {cs.CV}
 }
 ```
+
+```bibtex
+@misc{elnouby2021xcit,
+    title   = {XCiT: Cross-Covariance Image Transformers},
+    author  = {Alaaeldin El-Nouby and Hugo Touvron and Mathilde Caron and Piotr Bojanowski and Matthijs Douze and Armand Joulin and Ivan Laptev and Natalia Neverova and Gabriel Synnaeve and Jakob Verbeek and Hervé Jegou},
+    year    = {2021},
+    eprint  = {2106.09681},
+    archivePrefix = {arXiv},
+    primaryClass = {cs.CV}
+}
+```
