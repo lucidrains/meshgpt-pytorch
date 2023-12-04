@@ -11,11 +11,7 @@ from beartype.typing import Tuple
 from einops import rearrange, repeat, reduce
 from einops.layers.torch import Rearrange
 
-from x_transformers import (
-    TransformerWrapper,
-    Decoder,
-    AutoregressiveWrapper
-)
+from x_transformers import Decoder
 
 from x_transformers.attend import Attend
 
@@ -98,6 +94,9 @@ class MeshAutoencoder(Module):
             sage_conv = SAGEConv(dim, dim)
 
             self.encoders.append(sage_conv)
+
+        self.codebook_size = codebook_size
+        self.num_quantizers = num_quantizers
 
         self.project_dim_codebook = nn.Linear(dim, dim_codebook * 9)
 
@@ -188,38 +187,68 @@ class MeshGPT(Module):
     @beartype
     def __init__(
         self,
+        dim = 512,
         autoencoder: MeshAutoencoder,
+        max_seq_len = 8192,
         attn_num_tokens = 128 ** 2,
-        attn_depth = 6,
+        attn_depth = 12,
         attn_dim_head = 64,
-        attn_heads = 8,
+        attn_heads = 16,
         attn_kwargs: dict = dict(),
         ignore_index = -100
     ):
         super().__init__()
 
-        self.decoder = TransformerWrapper(
-            attn_num_tokens = num_tokens,
-            attn_layers = Decoder(
-                depth = attn_depth,
-                dim_head = attn_dim_head,
-                heads = attn_heads,
-                **attn_kwargs
-            )
+        self.codebook_size = autoencoder.codebook_size
+        self.num_quantizers = autoncoder.num_quantizers
+
+        self.sos_token = nn.Parameter(torch.randn(dim))
+        self.eos_token_id = self.codebook_size + 1
+
+        # they use axial positional embeddings
+
+        self.token_embed = nn.Embedding(self.codebook_size + 1, dim)
+        self.quantize_level_embed = nn.Embedding(self.num_quantizers, dim)
+        self.abs_pos_emb = nn.Embedding(max_seq_len, dim)
+
+        # main autoregressive attention network
+
+        self.decoder = Decoder(
+            depth = attn_depth,
+            dim_head = attn_dim_head,
+            heads = attn_heads,
+            **attn_kwargs
         )
 
-        self.ignore_index = ignore_index
-
-        self.autoregressive_wrapper = AutoregressiveWrapper(
-            self.decoder,
-            ignore_index = ignore_index
-        )
+        self.to_logits = nn.Linear(dim, self.codebook_size + 1)
 
     def generate(self):
         return self
 
     def forward(
         self,
-        x
+        c
     ):
-        return x
+        seq_len, device = x.shape[-2], device
+        assert divisible_by(seq_len, self.num_quantizers) == 0
+
+        seq_arange = torch.arange(seq_len, device = device)
+
+        # codebook embed + absolute positions
+
+        x = self.token_embed(codes)
+        x = x + self.abs_pos_emb(seq_arange)
+
+        # embedding for quantizer level
+
+        level_embed = repeat('n d -> (r n) d', r = seq_len // self.num_quantizers)
+        x = x + level_embed
+
+        # attention
+
+        x = self.decoder(x)
+
+        # logits
+
+        logits = self.to_logits
+        return logits

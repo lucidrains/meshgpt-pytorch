@@ -18,6 +18,7 @@ setup(
     'mesh generation'
   ],
   install_requires=[
+    'accelerate',
     'beartype',
     'einops>=0.7.0',
     'ema-pytorch',
