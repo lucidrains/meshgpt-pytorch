@@ -4,8 +4,6 @@
 
 Implementation of <a href="https://arxiv.org/abs/2311.15475">MeshGPT</a>, SOTA Mesh generation using Attention, in Pytorch
 
-<a href="https://discord.gg/22vWxfGS">Discord to discuss paper</a>
-
 Will also try to adopt this to molecular generation. Bonds will be the faces.
 
 ## Citations
