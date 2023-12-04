@@ -130,7 +130,28 @@ class MeshAutoencoder(Module):
         faces: Tensor,
         face_edges: Tensor
     ):
-        x = faces
+        """
+        einops:
+        b - batch
+        nf - number of faces
+        nv - number of vertices (3)
+        c - coordinates (3)
+        d - embed dim
+        """
+
+        batch, num_vertices, num_coors = vertices.shape
+        _, num_faces, _ = faces.shape
+
+        faces_vertices = repeat(faces, 'b nf nv -> b nf nv c', c = num_coors)
+        vertices = repeat(vertices, 'b nv c -> b nf nv c', nf = num_faces)
+
+        face_coords = vertices.gather(-2, faces_vertices)
+        face_coords = rearrange(face_coords, 'b nf nv c -> b nf (nv c)') # 9 coordinates per face
+
+        face_embed = self.coor_embed(face_coords)
+        face_embed = rearrange(face_embed, 'b nf c d -> b nf (c d)')
+
+        x = face_embed
 
         for conv in self.encoders:
             x = conv(x, face_edges)
@@ -167,7 +188,7 @@ class MeshAutoencoder(Module):
         )
 
         encoded = self.encode(
-            vertices = vertices,
+            vertices = discretized_vertices,
             faces = faces,
             face_edges = face_edges
         )
@@ -187,8 +208,9 @@ class MeshGPT(Module):
     @beartype
     def __init__(
         self,
-        dim = 512,
         autoencoder: MeshAutoencoder,
+        *,
+        dim = 512,
         max_seq_len = 8192,
         attn_num_tokens = 128 ** 2,
         attn_depth = 12,
