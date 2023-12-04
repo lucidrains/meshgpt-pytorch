@@ -4,6 +4,8 @@
 
 Implementation of <a href="https://arxiv.org/abs/2311.15475">MeshGPT</a>, SOTA Mesh generation using Attention, in Pytorch
 
+Will also add text conditioning, for eventual text-to-3d asset
+
 ## Todo
 
 - [ ] autoencoder
