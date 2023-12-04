@@ -98,7 +98,7 @@ class MeshAutoencoder(Module):
         self.codebook_size = codebook_size
         self.num_quantizers = num_quantizers
 
-        self.project_dim_codebook = nn.Linear(dim, dim_codebook * 9)
+        self.project_dim_codebook = nn.Linear(dim, dim_codebook * 3)
 
         self.quantizer = ResidualVQ(
             dim = dim_codebook,
@@ -108,7 +108,7 @@ class MeshAutoencoder(Module):
             **rq_kwargs
         )
 
-        self.project_codebook_out = nn.Linear(dim_codebook * 9, dim)
+        self.project_codebook_out = nn.Linear(dim_codebook * 3, dim)
 
         self.decoders = ModuleList([])
 
@@ -172,10 +172,50 @@ class MeshAutoencoder(Module):
     @beartype
     def quantize(
         self,
+        *,
         faces: TensorType['b', 'nf', 3, int],
         face_embed: TensorType['b', 'nf', 'd', float],
     ):
-        raise NotImplementedError
+        batch, device = faces.shape[0], faces.device
+
+        max_vertex_index = faces.amax()
+        num_vertices = int(max_vertex_index.item() + 1)
+
+        face_embed = self.project_dim_codebook(face_embed)
+        face_embed = rearrange(face_embed, 'b nf (nv d) -> b nf nv d', nv = 3)
+
+        vertex_dim = face_embed.shape[-1]
+        faces_with_dim = repeat(faces, 'b nf nv -> b nf nv d', d = vertex_dim)
+
+        faces_with_dim = rearrange(faces_with_dim, 'b ... d -> b (...) d')
+        face_embed = rearrange(face_embed, 'b ... d -> b (...) d')
+
+        vertices = torch.zeros((batch, num_vertices, vertex_dim), device = device)
+
+        # scatter mean
+
+        num = vertices.scatter_add(-2, faces_with_dim, face_embed)
+        den = torch.zeros_like(vertices).scatter_add(-2, faces, torch.ones_like(face_embed))
+
+        averaged_vertices = num / den.clamp(min = 1e-5)
+
+        # residual VQ
+
+        quantized, codes, commit_loss = self.quantizer(averaged_vertices)
+
+        # gather quantized vertexes back to faces for decoding
+        # now the faces have quantized vertices
+
+        face_embed_output = quantized.gather(-2, faces_with_dim)
+        face_embed_output = rearrange(face_embed_output, 'b (nf nv) d -> b nf (nv d)', nv = 3)
+
+        # vertex codes also need to be gathered to be organized by face sequence
+        # for autoregressive learning
+
+        faces_with_quantized_dim = repeat(faces, 'b nf nv -> b (nf nv) q', q = self.num_quantizers)
+        codes_output = codes.gather(-2, faces_with_quantized_dim)
+
+        return face_embed_output, codes_output, commit_loss
 
     @beartype
     def decode(
@@ -212,7 +252,7 @@ class MeshAutoencoder(Module):
             face_edges = face_edges
         )
 
-        quantized, aux_loss = self.quantize(
+        quantized, codes, commit_loss = self.quantize(
             face_embed = encoded,
             faces = faces
         )
