@@ -139,7 +139,7 @@ class MeshAutoencoder(Module):
         d - embed dim
         """
 
-        batch, num_vertices, num_coors = vertices.shape
+        batch, num_vertices, num_coors, device = *vertices.shape, vertices.device
         _, num_faces, _ = faces.shape
 
         faces_vertices = repeat(faces, 'b nf nv -> b nf nv c', c = num_coors)
@@ -151,12 +151,31 @@ class MeshAutoencoder(Module):
         face_embed = self.coor_embed(face_coords)
         face_embed = rearrange(face_embed, 'b nf c d -> b nf (c d)')
 
-        x = face_embed
+        face_embed = self.project_in(face_embed)
+
+        batch_arange = torch.arange(batch, device = device)
+        batch_offset = batch_arange * num_faces
+        batch_offset = rearrange(batch_offset, 'b -> b 1 1')
+
+        face_edges += batch_offset
+        face_edges = rearrange(face_edges, 'b ij e -> ij (b e)')
+
+        x = rearrange(face_embed, 'b nf d -> (b nf) d')
 
         for conv in self.encoders:
             x = conv(x, face_edges)
 
+        x = rearrange(x, '(b nf) d -> b nf d', b = batch)
+
         return x
+
+    @beartype
+    def quantize(
+        self,
+        faces: TensorType['b', 'nf', 3, int],
+        face_embed: TensorType['b', 'nf', 'd', float],
+    ):
+        raise NotImplementedError
 
     @beartype
     def decode(
@@ -193,7 +212,10 @@ class MeshAutoencoder(Module):
             face_edges = face_edges
         )
 
-        quantized, aux_loss = self.quantizer(encoded)
+        quantized, aux_loss = self.quantize(
+            face_embed = encoded,
+            faces = faces
+        )
 
         if return_quantized:
             return quantized
