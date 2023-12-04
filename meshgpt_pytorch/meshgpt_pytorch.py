@@ -126,9 +126,9 @@ class MeshAutoencoder(Module):
     def encode(
         self,
         *,
-        vertices: Tensor,
-        faces: Tensor,
-        face_edges: Tensor
+        vertices:   TensorType['b', 'nv', 3, int],
+        faces:      TensorType['b', 'nf', 3, int],
+        face_edges: TensorType['b', 2, 'e', int]
     ):
         """
         einops:
