@@ -4,7 +4,22 @@
 
 Implementation of <a href="https://arxiv.org/abs/2311.15475">MeshGPT</a>, SOTA Mesh generation using Attention, in Pytorch
 
-Will also try to adopt this to molecular generation. Bonds will be the faces.
+## Todo
+
+- [ ] autoencoder
+    - [ ] figure out scatter gather to pass in and out of sageconvs
+    - [ ] proper scatter mean accounting for padding for meaning the vertices and RVQ the vertices before gathering back for decoder
+    - [ ] xcit linear attention in both encoder / decoder
+    - [ ] add option to use residual FSQ / LFQ, latest quantization development
+
+- [ ] transformer
+     - [ ] make sure it trains
+         - [ ] take care of sos token automatically
+         - [ ] take care of eos token automatically if sequence length or mask is passed in
+     - [ ] properly mask out eos logit during generation
+     - [ ] generation + cache kv
+     - [ ] speculative decoding option
+     - [ ] hierarchical transformers (using the RQ transformer)
 
 ## Citations
 
