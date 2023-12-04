@@ -23,6 +23,7 @@ setup(
     'ema-pytorch',
     'torch>=2.0',
     'torch_geometric',
+    'torchtyping',
     'vector-quantize-pytorch>=1.11.8',
     'x-transformers>=1.26.0'
   ],

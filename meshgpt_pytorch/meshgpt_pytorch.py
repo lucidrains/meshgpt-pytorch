@@ -3,6 +3,8 @@ from torch import nn, Tensor, einsum
 from torch.nn import Module, ModuleList
 import torch.nn.functional as F
 
+from torchtyping import TensorType
+
 from beartype import beartype
 from beartype.typing import Tuple
 
@@ -72,40 +74,113 @@ class MeshAutoencoder(Module):
     def __init__(
         self,
         dim,
+        num_discrete_coors = 128,
+        coor_continuous_range: Tuple[float, float] = (-1., 1.),
+        dim_coor_embed = 64,
+        encoder_depth = 2,
+        decoder_depth = 2,
+        dim_codebook = 192,
+        num_quantizers = 2,         # or 'D' in the paper
+        codebook_size = 16384,      # they use 16k, shared codebook between layers
         rq_kwargs: dict = dict()
     ):
         super().__init__()
-        self.quantizer = self.ResidualVQ(**rq_kwargs)
+
+        self.num_discrete_coors = num_discrete_coors
+        self.coor_continuous_range = coor_continuous_range
+
+        self.coor_embed = nn.Embedding(num_discrete_coors, dim_coor_embed)
+        self.project_in = nn.Linear(dim_coor_embed * 9, dim)
+
+        self.encoders = ModuleList([])
+
+        for _ in range(encoder_depth):
+            sage_conv = SAGEConv(dim, dim)
+
+            self.encoders.append(sage_conv)
+
+        self.project_dim_codebook = nn.Linear(dim, dim_codebook * 9)
+
+        self.quantizer = ResidualVQ(
+            dim = dim_codebook,
+            num_quantizers = num_quantizers,
+            codebook_size = codebook_size,
+            shared_codebook = True,
+            **rq_kwargs
+        )
+
+        self.project_codebook_out = nn.Linear(dim_codebook * 9, dim)
+
+        self.decoders = ModuleList([])
+
+        for _ in range(decoder_depth):
+            sage_conv = SAGEConv(dim, dim)
+
+            self.decoders.append(sage_conv)
+
+        self.to_coor_logits = nn.Sequential(
+            nn.Linear(dim, num_discrete_coors * 9),
+            Rearrange('... (v c) -> ... v c', v = 9)
+        )
 
     @beartype
     def encode(
         self,
+        *,
+        vertices: Tensor,
         faces: Tensor,
         face_edges: Tensor
     ):
-        return faces
+        x = faces
+
+        for conv in self.encoders:
+            x = conv(x, face_edges)
+
+        return x
 
     @beartype
     def decode(
         self,
         codes
     ):
-        return faces
+        raise NotImplementedError
+
+    @beartype
+    def decode_from_codes_to_vertices(
+        self,
+        codes: Tensor
+    ) -> Tensor:
+        raise NotImplementedError
 
     @beartype
     def forward(
         self,
+        *,
+        vertices: Tensor,
         faces: Tensor,
         face_edges: Tensor,
         return_quantized = False
     ):
-        encoded = self.encode(faces, face_edges)
+        discretized_vertices = discretize_coors(
+            vertices,
+            num_discrete = self.num_discrete_coors,
+            continuous_range = self.coor_continuous_range,
+        )
+
+        encoded = self.encode(
+            vertices = vertices,
+            faces = faces,
+            face_edges = face_edges
+        )
+
         quantized, aux_loss = self.quantizer(encoded)
 
         if return_quantized:
             return quantized
 
         decode = self.decode(quantized)
+
+        pred_coor_bins = self.to_coor_logits(decode)
 
         return loss
 
