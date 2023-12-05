@@ -4,6 +4,7 @@ import torch
 from torch import nn, Tensor, einsum
 from torch.nn import Module, ModuleList
 import torch.nn.functional as F
+from torch.cuda.amp import autocast
 
 from torchtyping import TensorType
 
@@ -394,23 +395,26 @@ class MeshAutoencoder(Module):
         decode = self.decode(quantized)
 
         pred_face_coords = self.to_coor_logits(decode)
+
+        # prepare for recon loss
+
         pred_face_coords = rearrange(pred_face_coords, 'b ... c -> b c (...)')
+        face_coordinates = rearrange(face_coordinates, 'b ... -> b 1 (...)')
 
         # reconstruction loss on discretized coordinates on each face
         # they also smooth (blur) the one hot positions, localized label smoothing basically
 
-        face_coordinates = rearrange(face_coordinates, 'b ... -> b 1 (...)')
+        with autocast(enabled = False):
+            pred_log_prob = pred_face_coords.log_softmax(dim = 1)
 
-        pred_log_prob = pred_face_coords.log_softmax(dim = 1)
+            target_one_hot = torch.zeros_like(pred_log_prob).scatter(1, face_coordinates, 1.)
 
-        target_one_hot = torch.zeros_like(pred_log_prob).scatter(1, face_coordinates, 1.)
+            if self.bin_smooth_blur_sigma >= 0.:
+                target_one_hot = gaussian_blur_1d(target_one_hot, sigma = self.bin_smooth_blur_sigma)
 
-        if self.bin_smooth_blur_sigma >= 0.:
-            target_one_hot = gaussian_blur_1d(target_one_hot, sigma = self.bin_smooth_blur_sigma)
+            # cross entropy with localized smoothing
 
-        # cross entropy with localized smoothing
-
-        recon_loss = (-target_one_hot * pred_log_prob).sum(dim = 1).mean()
+            recon_loss = (-target_one_hot * pred_log_prob).sum(dim = 1).mean()
 
         # calculate total loss
 
@@ -506,6 +510,12 @@ class MeshTransformer(Module):
         # logits
 
         logits = self.to_logits(attended)
+
+        if self.num_quantizers > 1:
+            eos_mask = ((torch.arange(seq_len, device = device) - 1)  % self.num_quantizers == 0)
+            eos_mask = rearrange(eos_mask, 'n -> 1 n 1')
+            eos_mask = F.pad(eos_mask, (logits.shape[-1] - 1, 0), value = False)
+            logits = logits.masked_fill(eos_mask, -torch.finfo(logits.dtype).max)
 
         if not return_loss:
             return logits

@@ -84,10 +84,10 @@ face_seq_coords = autoencoder.decode_from_codes_to_faces(face_vertex_codes)
     - [ ] handle variable lengthed faces last - use sink tokens when scattering
 
 - [ ] transformer
+     - [x] properly mask out eos logit during generation
      - [x] make sure it trains
          - [x] take care of sos token automatically
          - [ ] take care of eos token automatically if sequence length or mask is passed in
-     - [ ] properly mask out eos logit during generation
      - [ ] generation + cache kv
      - [ ] speculative decoding option
      - [ ] hierarchical transformers (using the RQ transformer)
