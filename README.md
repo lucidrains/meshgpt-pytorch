@@ -6,6 +6,10 @@ Implementation of <a href="https://arxiv.org/abs/2311.15475">MeshGPT</a>, SOTA M
 
 Will also add text conditioning, for eventual text-to-3d asset
 
+## Appreciation
+
+- <a href="https://stability.ai/">StabilityAI</a>, <a href="https://a16z.com/supporting-the-open-source-ai-community/">A16Z Open Source AI Grant Program</a>, and <a href="https://huggingface.co/">🤗 Huggingface</a> for the generous sponsorships, as well as my other sponsors, for affording me the independence to open source current artificial intelligence research
+
 ## Install
 
 ```bash
