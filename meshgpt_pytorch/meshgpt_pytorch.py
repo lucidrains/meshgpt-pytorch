@@ -561,12 +561,12 @@ class MeshTransformer(Module):
 
         code_len = codes.shape[1]
 
-        level_embed = repeat(self.quantize_level_embed, 'n d -> (r n) d', r = ceil(seq_len / self.num_quantizers))
+        level_embed = repeat(self.quantize_level_embed, 'q d -> (r q) d', r = ceil(seq_len / self.num_quantizers))
         codes = codes + level_embed[:code_len]
 
         # embedding for each vertex
 
-        vertex_embed = repeat(self.vertex_embed, 'n d -> (r1 n r2) d', r1 = ceil(seq_len / (3 * self.num_quantizers)), r2 = self.num_quantizers)
+        vertex_embed = repeat(self.vertex_embed, 'nv d -> (r nv q) d', r = ceil(seq_len / (3 * self.num_quantizers)), q = self.num_quantizers)
         codes = codes + vertex_embed[:code_len]
 
         # auto prepend sos token
