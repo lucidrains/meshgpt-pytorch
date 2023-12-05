@@ -275,11 +275,35 @@ class MeshAutoencoder(Module):
         return rearrange(x, 'b d n -> b n d')
 
     @beartype
+    @torch.no_grad()
     def decode_from_codes_to_faces(
         self,
-        codes: Tensor
+        codes: Tensor,
+        return_discrete_codes = False
     ):
-        raise NotImplementedError
+        quantized = self.quantizer.get_output_from_indices(codes)
+        quantized = rearrange(quantized, 'b (nf nv) d -> b nf (nv d)', nv = 3)
+
+        face_embed_output = self.project_codebook_out(quantized)
+        decoded = self.decode(face_embed_output)
+
+        pred_face_coords = self.to_coor_logits(decoded)
+        pred_face_coords = pred_face_coords.argmax(dim = -1)
+
+        pred_face_coords = rearrange(pred_face_coords, '... (v c) -> ... v c', v = 3)
+
+        # back to continuous space
+
+        continuous_coors = undiscretize_coors(
+            pred_face_coords,
+            num_discrete = self.num_discrete_coors,
+            continuous_range = self.coor_continuous_range
+        )
+
+        if not return_discrete_codes:
+            return continuous_coors
+
+        return continuous_coors, pred_face_coords
 
     def tokenize(self, *args, **kwargs):
         assert 'return_codes' not in kwargs
@@ -318,12 +342,12 @@ class MeshAutoencoder(Module):
 
         decode = self.decode(quantized)
 
-        pred_coor_bins = self.to_coor_logits(decode)
+        pred_face_coords = self.to_coor_logits(decode)
 
         # reconstruction loss on discretized coordinates on each face
 
         recon_loss = F.cross_entropy(
-            rearrange(pred_coor_bins, 'b ... c -> b c ...'),
+            rearrange(pred_face_coords, 'b ... c -> b c ...'),
             face_coordinates
         )
 
@@ -384,7 +408,7 @@ class MeshGPT(Module):
 
     def forward(
         self,
-        c
+        codes
     ):
         seq_len, device = x.shape[-2], device
         assert divisible_by(seq_len, self.num_quantizers) == 0

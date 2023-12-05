@@ -21,7 +21,10 @@ from meshgpt_pytorch import MeshAutoencoder
 # autoencoder
 
 autoencoder = MeshAutoencoder(
-    dim = 512
+    dim = 512,
+    encoder_depth = 6,
+    decoder_depth = 6,
+    num_discrete_coors = 128
 )
 
 # mock inputs
@@ -49,6 +52,13 @@ face_vertex_codes = autoencoder.tokenize(
 )
 
 # now train your transformer to generate this sequence of codes
+
+# to decode back to continuous coordinates for each face (9 vertices)
+
+# (batch, number of faces, vertex (3), coord (3))
+
+face_seq_coords = autoencoder.decode_from_codes_to_faces(face_vertex_codes)
+
 ```
 
 ## Todo
