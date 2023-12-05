@@ -95,6 +95,19 @@ def gaussian_blur_1d(
     kernel = repeat(gaussian, 'n -> c 1 n', c = channels)
     return F.conv1d(t, kernel, padding = half_width, groups = channels)
 
+@beartype
+def scatter_mean(
+    tgt: Tensor,
+    indices: Tensor,
+    src = Tensor,
+    *,
+    dim: int = -1,
+    eps: float = 1e-5
+):
+    num = tgt.scatter_add(dim, indices, src)
+    den = torch.zeros_like(tgt).scatter_add(dim, indices, torch.ones_like(src))
+    return num / den.clamp(min = eps)
+
 # resnet block
 
 class Block(Module):
@@ -268,10 +281,7 @@ class MeshAutoencoder(Module):
 
         # scatter mean
 
-        num = vertices.scatter_add(-2, faces_with_dim, face_embed)
-        den = torch.zeros_like(vertices).scatter_add(-2, faces, torch.ones_like(face_embed))
-
-        averaged_vertices = num / den.clamp(min = 1e-5)
+        averaged_vertices = scatter_mean(vertices, faces_with_dim, face_embed, dim = -2)
 
         # residual VQ
 
