@@ -135,3 +135,14 @@ face_seq_coords = autoencoder.decode_from_codes_to_faces(face_vertex_codes)
     primaryClass = {cs.CV}
 }
 ```
+
+```bibtex
+@article{Lee2022AutoregressiveIG,
+    title   = {Autoregressive Image Generation using Residual Quantization},
+    author  = {Doyup Lee and Chiheon Kim and Saehoon Kim and Minsu Cho and Wook-Shin Han},
+    journal = {2022 IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR)},
+    year    = {2022},
+    pages   = {11513-11522},
+    url     = {https://api.semanticscholar.org/CorpusID:247244535}
+}
+```
