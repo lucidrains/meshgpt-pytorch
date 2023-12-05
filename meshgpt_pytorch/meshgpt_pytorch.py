@@ -534,7 +534,26 @@ class MeshTransformer(Module):
             codes = rearrange(codes, 'b (n q) -> b n q', q = self.num_quantizers)
             return codes
 
+        self.autoencoder.eval()
         return self.autoencoder.decode_from_codes_to_faces(codes)
+
+    def forward_from_raw_face_data(
+        self,
+        *,
+        vertices:   TensorType['b', 'nv', 3, int],
+        faces:      TensorType['b', 'nf', 3, int],
+        face_edges: TensorType['b', 2, 'e', int],
+        **kwargs
+    ):
+        with torch.no_grad():
+            self.autoencoder.eval()
+            codes = self.autoencoder.tokenize(
+                vertices = vertices,
+                faces = faces,
+                face_edges = face_edges
+            )
+
+        return self.forward(codes, **kwargs)
 
     def forward(
         self,
@@ -548,7 +567,7 @@ class MeshTransformer(Module):
 
         batch, seq_len, device = *codes.shape, codes.device
 
-        assert seq_len <= self.max_seq_len
+        assert seq_len <= self.max_seq_len, f'received codes of length {seq_len} but needs to be less than or equal to set max_seq_len {self.max_seq_len}'
 
         # auto append eos token
 
