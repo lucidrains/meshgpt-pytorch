@@ -31,6 +31,8 @@ from ema_pytorch import EMA
 
 from torch_geometric.nn.conv import SAGEConv
 
+from tqdm import tqdm
+
 # helper functions
 
 def exists(v):
@@ -308,7 +310,7 @@ class MeshAutoencoder(Module):
 
         vertices = torch.zeros((batch, num_vertices, vertex_dim), device = device)
 
-        # create pad vertex, due to variable lenghted faces
+        # create pad vertex, due to variable lengthed faces
 
         pad_vertex_id = num_vertices
         vertices = F.pad(vertices, (0, 0, 0, 1), value = 0.)
@@ -579,7 +581,7 @@ class MeshTransformer(Module):
 
         curr_length = codes.shape[-1]
 
-        for i in range(curr_length, self.max_seq_len):
+        for i in tqdm(range(curr_length, self.max_seq_len)):
             can_eos = divisible_by(i + 1, self.num_quantizers * 3)  # only allow for eos to be decoded at the end of each face, defined as 3 vertices with D residusl VQ codes
 
             logits = self.forward(codes, return_loss = False, append_eos = False)

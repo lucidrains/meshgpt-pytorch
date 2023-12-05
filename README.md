@@ -20,7 +20,11 @@ $ pip install meshgpt-pytorch
 
 ```python
 import torch
-from meshgpt_pytorch import MeshAutoencoder
+
+from meshgpt_pytorch import (
+    MeshAutoencoder,
+    MeshTransformer
+)
 
 # autoencoder
 
@@ -37,12 +41,17 @@ vertices = torch.randn((2, 121, 3))
 faces = torch.randint(0, 121, (2, 64, 3))
 face_edges = torch.randint(0, 64, (2, 2, 96))
 
+face_len = torch.randint(1, 64, (2,))
+face_edges_len = torch.randint(1, 96, (2,))
+
 # forward in the faces
 
 loss = autoencoder(
     vertices = vertices,
     faces = faces,
-    face_edges = face_edges
+    face_edges = face_edges,
+    face_len = face_len,
+    face_edges_len = face_edges_len
 )
 
 loss.backward()
@@ -52,14 +61,17 @@ loss.backward()
 face_vertex_codes = autoencoder.tokenize(
     vertices = vertices,
     faces = faces,
-    face_edges = face_edges
+    face_edges = face_edges,
+    face_len = face_len,
+    face_edges_len = face_edges_len
 )
 
 # now train your transformer to generate this sequence of codes
 
 transformer = MeshTransformer(
     autoencoder,
-    dim = 512
+    dim = 512,
+    max_seq_len = 768
 )
 
 loss = transformer(face_vertex_codes)
@@ -71,7 +83,6 @@ faces_coordinates = transformer.generate()
 
 # (batch, num faces, vertices (3), coordinates (3))
 # now post process for the generated 3d asset
-
 ```
 
 ## Todo
