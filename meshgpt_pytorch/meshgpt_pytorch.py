@@ -29,6 +29,9 @@ from torch_geometric.nn.conv import SAGEConv
 def exists(v):
     return v is not None
 
+def default(v, d):
+    return v if exists(v) else d
+
 # tensor helper functions
 
 @beartype
@@ -63,6 +66,37 @@ def undiscretize_coors(
     t /= num_discrete
     return t * (hi - lo) + lo
 
+# resnet block
+
+class Block(Module):
+    def __init__(self, dim, groups = 8):
+        super().__init__()
+        self.proj = nn.Conv1d(dim, dim, 3, padding = 1)
+        self.norm = nn.GroupNorm(groups, dim)
+        self.act = nn.SiLU()
+
+    def forward(self, x):
+        x = self.proj(x)
+        x = self.norm(x)
+        x = self.act(x)
+        return x
+
+class ResnetBlock(Module):
+    def __init__(
+        self,
+        dim,
+        *,
+        groups = 8
+    ):
+        super().__init__()
+        self.block1 = Block(dim, groups = groups)
+        self.block2 = Block(dim, groups = groups)
+
+    def forward(self, x):
+        h = self.block1(x)
+        h = self.block2(h)
+        return h + x
+
 # main classes
 
 class MeshAutoencoder(Module):
@@ -78,7 +112,8 @@ class MeshAutoencoder(Module):
         dim_codebook = 192,
         num_quantizers = 2,         # or 'D' in the paper
         codebook_size = 16384,      # they use 16k, shared codebook between layers
-        rq_kwargs: dict = dict()
+        rq_kwargs: dict = dict(),
+        commit_loss_weight = 0.1,
     ):
         super().__init__()
 
@@ -105,17 +140,19 @@ class MeshAutoencoder(Module):
             num_quantizers = num_quantizers,
             codebook_size = codebook_size,
             shared_codebook = True,
+            commitment_weight = 1.,
             **rq_kwargs
         )
+
+        self.commit_loss_weight = commit_loss_weight
 
         self.project_codebook_out = nn.Linear(dim_codebook * 3, dim)
 
         self.decoders = ModuleList([])
 
         for _ in range(decoder_depth):
-            sage_conv = SAGEConv(dim, dim)
-
-            self.decoders.append(sage_conv)
+            resnet_block = ResnetBlock(dim)
+            self.decoders.append(resnet_block)
 
         self.to_coor_logits = nn.Sequential(
             nn.Linear(dim, num_discrete_coors * 9),
@@ -128,7 +165,8 @@ class MeshAutoencoder(Module):
         *,
         vertices:   TensorType['b', 'nv', 3, int],
         faces:      TensorType['b', 'nf', 3, int],
-        face_edges: TensorType['b', 2, 'e', int]
+        face_edges: TensorType['b', 2, 'e', int],
+        return_face_coordinates = False
     ):
         """
         einops:
@@ -157,7 +195,7 @@ class MeshAutoencoder(Module):
         batch_offset = batch_arange * num_faces
         batch_offset = rearrange(batch_offset, 'b -> b 1 1')
 
-        face_edges += batch_offset
+        face_edges = face_edges + batch_offset
         face_edges = rearrange(face_edges, 'b ij e -> ij (b e)')
 
         x = rearrange(face_embed, 'b nf d -> (b nf) d')
@@ -167,7 +205,10 @@ class MeshAutoencoder(Module):
 
         x = rearrange(x, '(b nf) d -> b nf d', b = batch)
 
-        return x
+        if not return_face_coordinates:
+            return x
+
+        return x, face_coords
 
     @beartype
     def quantize(
@@ -209,6 +250,8 @@ class MeshAutoencoder(Module):
         face_embed_output = quantized.gather(-2, faces_with_dim)
         face_embed_output = rearrange(face_embed_output, 'b (nf nv) d -> b nf (nv d)', nv = 3)
 
+        face_embed_output = self.project_codebook_out(face_embed_output)
+
         # vertex codes also need to be gathered to be organized by face sequence
         # for autoregressive learning
 
@@ -220,16 +263,27 @@ class MeshAutoencoder(Module):
     @beartype
     def decode(
         self,
-        codes
+        quantized: TensorType['b', 'n', 'd', float]
+    ):
+        quantized = rearrange(quantized, 'b n d -> b d n')
+
+        x = quantized
+
+        for resnet_block in self.decoders:
+            x = resnet_block(x)
+
+        return rearrange(x, 'b d n -> b n d')
+
+    @beartype
+    def decode_from_codes_to_faces(
+        self,
+        codes: Tensor
     ):
         raise NotImplementedError
 
-    @beartype
-    def decode_from_codes_to_vertices(
-        self,
-        codes: Tensor
-    ) -> Tensor:
-        raise NotImplementedError
+    def tokenize(self, *args, **kwargs):
+        assert 'return_codes' not in kwargs
+        return self.forward(*args, return_codes = True, **kwargs)
 
     @beartype
     def forward(
@@ -238,7 +292,8 @@ class MeshAutoencoder(Module):
         vertices: Tensor,
         faces: Tensor,
         face_edges: Tensor,
-        return_quantized = False
+        return_codes = False,
+        return_loss_breakdown = False
     ):
         discretized_vertices = discretize_coors(
             vertices,
@@ -246,10 +301,11 @@ class MeshAutoencoder(Module):
             continuous_range = self.coor_continuous_range,
         )
 
-        encoded = self.encode(
+        encoded, face_coordinates = self.encode(
             vertices = discretized_vertices,
             faces = faces,
-            face_edges = face_edges
+            face_edges = face_edges,
+            return_face_coordinates = True
         )
 
         quantized, codes, commit_loss = self.quantize(
@@ -257,14 +313,31 @@ class MeshAutoencoder(Module):
             faces = faces
         )
 
-        if return_quantized:
-            return quantized
+        if return_codes:
+            return codes
 
         decode = self.decode(quantized)
 
         pred_coor_bins = self.to_coor_logits(decode)
 
-        return loss
+        # reconstruction loss on discretized coordinates on each face
+
+        recon_loss = F.cross_entropy(
+            rearrange(pred_coor_bins, 'b ... c -> b c ...'),
+            face_coordinates
+        )
+
+        # calculate total loss
+
+        total_loss = recon_loss + \
+                     commit_loss.sum() * self.commit_loss_weight
+
+        if not return_loss_breakdown:
+            return total_loss
+
+        loss_breakdown = (recon_loss, commit_loss)
+
+        return recon_loss, loss_breakdown
 
 class MeshGPT(Module):
     @beartype
