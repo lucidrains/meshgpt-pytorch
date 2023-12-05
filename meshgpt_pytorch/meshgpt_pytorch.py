@@ -498,6 +498,8 @@ class MeshTransformer(Module):
             assert not exists(batch_size)
 
             prompt = rearrange(prompt, 'b ... -> b (...)')
+            assert prompt.shape[-1] <= self.max_seq_len
+
             batch_size = prompt.shape[0]
 
         batch_size = default(batch_size, 1)
@@ -541,6 +543,7 @@ class MeshTransformer(Module):
         assert seq_len <= self.max_seq_len
 
         if return_loss:
+            assert seq_len > 0
             codes, labels = codes[:, :-1], codes
 
         codes = self.token_embed(codes)
@@ -556,7 +559,7 @@ class MeshTransformer(Module):
         level_embed = repeat(self.quantize_level_embed, 'n d -> (r n) d', r = ceil(seq_len / self.num_quantizers))
         codes = codes + level_embed[:codes.shape[1]]
 
-        # auto append sos token
+        # auto prepend sos token
 
         sos = repeat(self.sos_token, 'd -> b d', b = batch)
         codes, _ = pack([sos, codes], 'b * d')
