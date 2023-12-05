@@ -449,7 +449,7 @@ class MeshTransformer(Module):
         self.num_quantizers = autoencoder.num_quantizers
 
         self.sos_token = nn.Parameter(torch.randn(dim))
-        self.eos_token_id = self.codebook_size + 1
+        self.eos_token_id = self.codebook_size
 
         # they use axial positional embeddings
 
