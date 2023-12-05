@@ -361,8 +361,10 @@ class MeshAutoencoder(Module):
 
         return continuous_coors, pred_face_coords
 
+    @torch.no_grad()
     def tokenize(self, *args, **kwargs):
         assert 'return_codes' not in kwargs
+        self.eval()
         return self.forward(*args, return_codes = True, **kwargs)
 
     @beartype
@@ -545,13 +547,11 @@ class MeshTransformer(Module):
         face_edges: TensorType['b', 2, 'e', int],
         **kwargs
     ):
-        with torch.no_grad():
-            self.autoencoder.eval()
-            codes = self.autoencoder.tokenize(
-                vertices = vertices,
-                faces = faces,
-                face_edges = face_edges
-            )
+        codes = self.autoencoder.tokenize(
+            vertices = vertices,
+            faces = faces,
+            face_edges = face_edges
+        )
 
         return self.forward(codes, **kwargs)
 
