@@ -53,6 +53,14 @@ face_vertex_codes = autoencoder.tokenize(
 
 # now train your transformer to generate this sequence of codes
 
+transformer = MeshTransformer(
+    autoencoder,
+    dim = 512
+)
+
+loss = transformer(face_vertex_codes)
+loss.backward()
+
 # to decode back to continuous coordinates for each face (9 vertices)
 
 # (batch, number of faces, vertex (3), coord (3))
