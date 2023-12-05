@@ -444,7 +444,10 @@ class MeshTransformer(Module):
         attn_depth = 12,
         attn_dim_head = 64,
         attn_heads = 16,
-        attn_kwargs: dict = dict(),
+        attn_kwargs: dict = dict(
+            ff_glu = True,
+            num_mem_kv = 4
+        ),
         ignore_index = -100
     ):
         super().__init__()
