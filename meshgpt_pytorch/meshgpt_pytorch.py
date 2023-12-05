@@ -281,6 +281,14 @@ class MeshAutoencoder(Module):
         codes: Tensor,
         return_discrete_codes = False
     ):
+
+        # handle different code shapes
+
+        codes = rearrange(codes, 'b ... -> b (...)')
+        codes = rearrange(codes, 'b (n q) -> b n q', q = self.num_quantizers)
+
+        # decode
+
         quantized = self.quantizer.get_output_from_indices(codes)
         quantized = rearrange(quantized, 'b (nf nv) d -> b nf (nv d)', nv = 3)
 
