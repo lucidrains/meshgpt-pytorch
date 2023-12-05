@@ -65,11 +65,12 @@ transformer = MeshTransformer(
 loss = transformer(face_vertex_codes)
 loss.backward()
 
-# to decode back to continuous coordinates for each face (9 vertices)
+# after much training of transformer, you can now sample from the attention net
 
-# (batch, number of faces, vertex (3), coord (3))
+faces_coordinates = transformer.generate()
 
-face_seq_coords = autoencoder.decode_from_codes_to_faces(face_vertex_codes)
+# (batch, num faces, vertices (3), coordinates (3))
+# now post process for the generated 3d asset
 
 ```
 
