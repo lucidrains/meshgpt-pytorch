@@ -461,7 +461,10 @@ class MeshTransformer(Module):
         assert divisible_by(max_seq_len, 3 * self.num_quantizers) # 3 vertices per face, with D codes per vertex
 
         self.token_embed = nn.Embedding(self.codebook_size + 1, dim)
+
         self.quantize_level_embed = nn.Parameter(torch.randn(self.num_quantizers, dim))
+        self.vertex_embed = nn.Parameter(torch.randn(3, dim))
+
         self.abs_pos_emb = nn.Embedding(max_seq_len, dim)
 
         self.max_seq_len = max_seq_len
@@ -556,8 +559,15 @@ class MeshTransformer(Module):
 
         # embedding for quantizer level
 
+        code_len = codes.shape[1]
+
         level_embed = repeat(self.quantize_level_embed, 'n d -> (r n) d', r = ceil(seq_len / self.num_quantizers))
-        codes = codes + level_embed[:codes.shape[1]]
+        codes = codes + level_embed[:code_len]
+
+        # embedding for each vertex
+
+        vertex_embed = repeat(self.vertex_embed, 'n d -> (r1 n r2) d', r1 = ceil(seq_len / (3 * self.num_quantizers)), r2 = self.num_quantizers)
+        codes = codes + vertex_embed[:code_len]
 
         # auto prepend sos token
 
