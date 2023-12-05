@@ -289,9 +289,9 @@ class MeshAutoencoder(Module):
     def forward(
         self,
         *,
-        vertices: Tensor,
-        faces: Tensor,
-        face_edges: Tensor,
+        vertices: TensorType['b', 'nv', 3, float],
+        faces: TensorType['b', 'nf', 3, int],
+        face_edges: TensorType['b', 2, 'ij', int],
         return_codes = False,
         return_loss_breakdown = False
     ):
