@@ -8,7 +8,7 @@ from torchtyping import TensorType
 from beartype import beartype
 from beartype.typing import Tuple
 
-from einops import rearrange, repeat, reduce
+from einops import rearrange, repeat, reduce, pack, unpack
 from einops.layers.torch import Rearrange
 
 from x_transformers import Decoder
@@ -31,6 +31,9 @@ def exists(v):
 
 def default(v, d):
     return v if exists(v) else d
+
+def divisible_by(num, den):
+    return (num % den) == 0
 
 # tensor helper functions
 
@@ -371,7 +374,7 @@ class MeshAutoencoder(Module):
 
         return recon_loss, loss_breakdown
 
-class MeshGPT(Module):
+class MeshTransformer(Module):
     @beartype
     def __init__(
         self,
@@ -389,7 +392,7 @@ class MeshGPT(Module):
         super().__init__()
 
         self.codebook_size = autoencoder.codebook_size
-        self.num_quantizers = autoncoder.num_quantizers
+        self.num_quantizers = autoencoder.num_quantizers
 
         self.sos_token = nn.Parameter(torch.randn(dim))
         self.eos_token_id = self.codebook_size + 1
@@ -397,12 +400,13 @@ class MeshGPT(Module):
         # they use axial positional embeddings
 
         self.token_embed = nn.Embedding(self.codebook_size + 1, dim)
-        self.quantize_level_embed = nn.Embedding(self.num_quantizers, dim)
+        self.quantize_level_embed = nn.Parameter(torch.randn(self.num_quantizers, dim))
         self.abs_pos_emb = nn.Embedding(max_seq_len, dim)
 
         # main autoregressive attention network
 
         self.decoder = Decoder(
+            dim = dim,
             depth = attn_depth,
             dim_head = attn_dim_head,
             heads = attn_heads,
@@ -416,28 +420,51 @@ class MeshGPT(Module):
 
     def forward(
         self,
-        codes
+        codes,
+        return_loss = True
     ):
-        seq_len, device = x.shape[-2], device
-        assert divisible_by(seq_len, self.num_quantizers) == 0
+        codes = rearrange(codes, 'b ... -> b (...)')
 
-        seq_arange = torch.arange(seq_len, device = device)
+        batch, seq_len, device = *codes.shape, codes.device
+        assert divisible_by(seq_len, self.num_quantizers)
+
+        if return_loss:
+            codes, labels = codes[:, :-1], codes
+
+        codes = self.token_embed(codes)
+
+        # auto append sos token
+
+        sos = repeat(self.sos_token, 'd -> b d', b = batch)
+        codes, _ = pack([sos, codes], 'b * d')
 
         # codebook embed + absolute positions
 
-        x = self.token_embed(codes)
-        x = x + self.abs_pos_emb(seq_arange)
+        seq_arange = torch.arange(seq_len, device = device)
+
+        codes = codes + self.abs_pos_emb(seq_arange)
 
         # embedding for quantizer level
 
-        level_embed = repeat('n d -> (r n) d', r = seq_len // self.num_quantizers)
-        x = x + level_embed
+        level_embed = repeat(self.quantize_level_embed, 'n d -> (r n) d', r = seq_len // self.num_quantizers)
+        codes = codes + level_embed
 
         # attention
 
-        x = self.decoder(x)
+        attended = self.decoder(codes)
 
         # logits
 
-        logits = self.to_logits
-        return logits
+        logits = self.to_logits(attended)
+
+        if not return_loss:
+            return logits
+
+        # loss
+
+        ce_loss = F.cross_entropy(
+            rearrange(logits, 'b n c -> b c n'),
+            labels
+        )
+
+        return ce_loss
