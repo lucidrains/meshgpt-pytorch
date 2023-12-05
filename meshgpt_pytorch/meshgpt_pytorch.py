@@ -515,7 +515,7 @@ class MeshTransformer(Module):
         curr_length = codes.shape[-1]
 
         for i in range(curr_length, self.max_seq_len):
-            can_eos = (i + 1) % (self.num_quantizers * 3)  # only allow for eos to be decoded at the end of each face, defined as 3 vertices with D residusl VQ codes
+            can_eos = divisible_by(i + 1, self.num_quantizers * 3)  # only allow for eos to be decoded at the end of each face, defined as 3 vertices with D residusl VQ codes
 
             logits = self.forward(codes, return_loss = False)
             logits = logits[:, -1]
