@@ -80,18 +80,21 @@ faces_coordinates = transformer.generate()
     - [x] encoder sageconv with torch geometric
     - [x] proper scatter mean accounting for padding for meaning the vertices and RVQ the vertices before gathering back for decoder
     - [x] complete decoder and reconstruction loss + commitment loss
+    - [x] handle variable lengthed faces
     - [ ] xcit linear attention in both encoder / decoder
     - [ ] add option to use residual FSQ / LFQ, latest quantization development
-    - [ ] handle variable lengthed faces last - use sink tokens when scattering
 
 - [ ] transformer
-     - [x] properly mask out eos logit during generation
-     - [x] make sure it trains
-         - [x] take care of sos token automatically
-         - [x] take care of eos token automatically if sequence length or mask is passed in
-     - [ ] generation + cache kv
-     - [ ] speculative decoding option
-     - [ ] hierarchical transformers (using the RQ transformer)
+    - [x] properly mask out eos logit during generation
+    - [x] make sure it trains
+        - [x] take care of sos token automatically
+        - [x] take care of eos token automatically if sequence length or mask is passed in
+    - [x] handle variable lengthed faces
+        - [x] on forwards
+        - [ ] on generation, do all eos logic + substitute everything after eos with pad id
+    - [ ] generation + cache kv
+    - [ ] speculative decoding option
+    - [ ] hierarchical transformers (using the RQ transformer)
 
 - [ ] trainer wrapper with hf accelerate
     - [ ] autoencoder - take care of ema

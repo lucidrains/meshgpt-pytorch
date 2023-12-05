@@ -122,8 +122,15 @@ class Block(Module):
         self.norm = nn.GroupNorm(groups, dim)
         self.act = nn.SiLU()
 
-    def forward(self, x):
+    def forward(self, x, mask = None):
+        if exists(mask):
+            x = x.masked_fill(~mask, 0.)
+
         x = self.proj(x)
+
+        if exists(mask):
+            x = x.masked_fill(~mask, 0.)
+
         x = self.norm(x)
         x = self.act(x)
         return x
@@ -139,9 +146,13 @@ class ResnetBlock(Module):
         self.block1 = Block(dim, groups = groups)
         self.block2 = Block(dim, groups = groups)
 
-    def forward(self, x):
-        h = self.block1(x)
-        h = self.block2(h)
+    def forward(
+        self,
+        x,
+        mask = None
+    ):
+        h = self.block1(x, mask = mask)
+        h = self.block2(h, mask = mask)
         return h + x
 
 # main classes
@@ -162,6 +173,7 @@ class MeshAutoencoder(Module):
         rq_kwargs: dict = dict(),
         commit_loss_weight = 0.1,
         bin_smooth_blur_sigma = 0.4,  # they blur the one hot discretized coordinate positions
+        pad_id = -1
     ):
         super().__init__()
 
@@ -192,6 +204,8 @@ class MeshAutoencoder(Module):
             **rq_kwargs
         )
 
+        self.pad_id = pad_id # for variable lengthed faces, padding quantized ids will be set to this value
+
         self.project_codebook_out = nn.Linear(dim_codebook * 3, dim)
 
         self.decoders = ModuleList([])
@@ -214,9 +228,10 @@ class MeshAutoencoder(Module):
     def encode(
         self,
         *,
-        vertices:   TensorType['b', 'nv', 3, int],
-        faces:      TensorType['b', 'nf', 3, int],
-        face_edges: TensorType['b', 2, 'e', int],
+        vertices:         TensorType['b', 'nv', 3, int],
+        faces:            TensorType['b', 'nf', 3, int],
+        face_edges:       TensorType['b', 2, 'e', int],
+        face_edges_mask:  TensorType['b', 'e', bool],
         return_face_coordinates = False
     ):
         """
@@ -242,33 +257,45 @@ class MeshAutoencoder(Module):
 
         face_embed = self.project_in(face_embed)
 
+        face_embed = rearrange(face_embed, 'b nf d -> (b nf) d')
+
+        # handle variable lengths by creating a padding node
+        # padding for edges will refer to this node
+
+        pad_node_id = face_embed.shape[0]
+        face_embed = F.pad(face_embed, (0, 0, 0, 1), value = 0.)
+
         batch_arange = torch.arange(batch, device = device)
         batch_offset = batch_arange * num_faces
         batch_offset = rearrange(batch_offset, 'b -> b 1 1')
 
         face_edges = face_edges + batch_offset
+
+        face_edges = face_edges.masked_fill(~face_edges_mask, pad_node_id)
         face_edges = rearrange(face_edges, 'b ij e -> ij (b e)')
 
-        x = rearrange(face_embed, 'b nf d -> (b nf) d')
-
         for conv in self.encoders:
-            x = conv(x, face_edges)
+            face_embed = conv(face_embed, face_edges)
 
-        x = rearrange(x, '(b nf) d -> b nf d', b = batch)
+        face_embed = face_embed[:-1] # remove padding node
+        face_embed = rearrange(face_embed, '(b nf) d -> b nf d', b = batch)
 
         if not return_face_coordinates:
-            return x
+            return face_embed
 
-        return x, face_coords
+        return face_embed, face_coords
 
     @beartype
     def quantize(
         self,
         *,
         faces: TensorType['b', 'nf', 3, int],
+        face_mask: TensorType['b', 'n', bool],
         face_embed: TensorType['b', 'nf', 'd', float],
+        pad_id = None
     ):
-        batch, device = faces.shape[0], faces.device
+        pad_id = default(pad_id, self.pad_id)
+        batch, num_faces, device = *faces.shape[:2], faces.device
 
         max_vertex_index = faces.amax()
         num_vertices = int(max_vertex_index.item() + 1)
@@ -279,10 +306,19 @@ class MeshAutoencoder(Module):
         vertex_dim = face_embed.shape[-1]
         faces_with_dim = repeat(faces, 'b nf nv -> b nf nv d', d = vertex_dim)
 
+        vertices = torch.zeros((batch, num_vertices, vertex_dim), device = device)
+
+        # create pad vertex, due to variable lenghted faces
+
+        pad_vertex_id = num_vertices
+        vertices = F.pad(vertices, (0, 0, 0, 1), value = 0.)
+
+        faces = faces.masked_fill(~rearrange(face_mask, 'b n -> b n 1'), pad_vertex_id)
+
+        # prepare for scatter mean
+
         faces_with_dim = rearrange(faces_with_dim, 'b ... d -> b (...) d')
         face_embed = rearrange(face_embed, 'b ... d -> b (...) d')
-
-        vertices = torch.zeros((batch, num_vertices, vertex_dim), device = device)
 
         # scatter mean
 
@@ -306,19 +342,28 @@ class MeshAutoencoder(Module):
         faces_with_quantized_dim = repeat(faces, 'b nf nv -> b (nf nv) q', q = self.num_quantizers)
         codes_output = codes.gather(-2, faces_with_quantized_dim)
 
+        # make sure codes being outputted have this padding
+
+        face_mask = repeat(face_mask, 'b nf -> b (nf nv) 1', nv = 3)
+        codes_output = codes_output.masked_fill(~face_mask, self.pad_id)
+
+        # output quantized, codes, as well as commitment loss
+
         return face_embed_output, codes_output, commit_loss
 
     @beartype
     def decode(
         self,
-        quantized: TensorType['b', 'n', 'd', float]
+        quantized: TensorType['b', 'n', 'd', float],
+        face_mask:  TensorType['b', 'n', bool]
     ):
         quantized = rearrange(quantized, 'b n d -> b d n')
+        face_mask = rearrange(face_mask, 'b n -> b 1 n')
 
         x = quantized
 
         for resnet_block in self.decoders:
-            x = resnet_block(x)
+            x = resnet_block(x, mask = face_mask)
 
         return rearrange(x, 'b d n -> b n d')
 
@@ -327,9 +372,9 @@ class MeshAutoencoder(Module):
     def decode_from_codes_to_faces(
         self,
         codes: Tensor,
+        face_mask: Optional[TensorType['b', 'n', bool]] = None,
         return_discrete_codes = False
     ):
-
         # handle different code shapes
 
         codes = rearrange(codes, 'b ... -> b (...)')
@@ -341,7 +386,11 @@ class MeshAutoencoder(Module):
         quantized = rearrange(quantized, 'b (nf nv) d -> b nf (nv d)', nv = 3)
 
         face_embed_output = self.project_codebook_out(quantized)
-        decoded = self.decode(face_embed_output)
+
+        decoded = self.decode(
+            face_embed_output,
+            face_mask = face_mask
+        )
 
         pred_face_coords = self.to_coor_logits(decoded)
         pred_face_coords = pred_face_coords.argmax(dim = -1)
@@ -374,9 +423,16 @@ class MeshAutoencoder(Module):
         vertices: TensorType['b', 'nv', 3, float],
         faces: TensorType['b', 'nf', 3, int],
         face_edges: TensorType['b', 2, 'ij', int],
+        face_len: TensorType['b', int],
+        face_edges_len: TensorType['b', int],
         return_codes = False,
         return_loss_breakdown = False
     ):
+        num_faces, num_face_edges, device = faces.shape[1], face_edges.shape[-1], faces.device
+
+        face_mask = torch.arange(num_faces, device = device) < rearrange(face_len, 'b -> b 1')
+        face_edges_mask = torch.arange(num_face_edges, device = device) < rearrange(face_edges_len, 'b -> b 1')
+
         discretized_vertices = discretize_coors(
             vertices,
             num_discrete = self.num_discrete_coors,
@@ -387,18 +443,23 @@ class MeshAutoencoder(Module):
             vertices = discretized_vertices,
             faces = faces,
             face_edges = face_edges,
+            face_edges_mask = face_edges_mask,
             return_face_coordinates = True
         )
 
         quantized, codes, commit_loss = self.quantize(
             face_embed = encoded,
-            faces = faces
+            faces = faces,
+            face_mask = face_mask
         )
 
         if return_codes:
             return codes
 
-        decode = self.decode(quantized)
+        decode = self.decode(
+            quantized,
+            face_mask = face_mask
+        )
 
         pred_face_coords = self.to_coor_logits(decode)
 
@@ -450,7 +511,7 @@ class MeshTransformer(Module):
             ff_glu = True,
             num_mem_kv = 4
         ),
-        ignore_index = -100
+        pad_id = -1
     ):
         super().__init__()
 
@@ -485,6 +546,8 @@ class MeshTransformer(Module):
         )
 
         self.to_logits = nn.Linear(dim, self.codebook_size + 1)
+
+        self.pad_id = pad_id
 
     @property
     def device(self):
@@ -542,15 +605,19 @@ class MeshTransformer(Module):
     def forward_from_raw_face_data(
         self,
         *,
-        vertices:   TensorType['b', 'nv', 3, int],
-        faces:      TensorType['b', 'nf', 3, int],
-        face_edges: TensorType['b', 2, 'e', int],
+        vertices:       TensorType['b', 'nv', 3, int],
+        faces:          TensorType['b', 'nf', 3, int],
+        face_edges:     TensorType['b', 2, 'e', int],
+        face_len:       TensorType['b', int],
+        face_edges_len: TensorType['b', int],
         **kwargs
     ):
         codes = self.autoencoder.tokenize(
             vertices = vertices,
             faces = faces,
-            face_edges = face_edges
+            face_edges = face_edges,
+            face_len = face_len,
+            face_edges_len = face_edges_len
         )
 
         return self.forward(codes, **kwargs)
@@ -564,6 +631,8 @@ class MeshTransformer(Module):
     ):
         if codes.ndim > 2:
             codes = rearrange(codes, 'b ... -> b (...)')
+
+        # get some variable
 
         batch, seq_len, device = *codes.shape, codes.device
 
@@ -588,6 +657,7 @@ class MeshTransformer(Module):
 
         # token embed (each residual VQ id)
 
+        codes = codes.masked_fill(codes == self.pad_id, 0)
         codes = self.token_embed(codes)
 
         # codebook embed + absolute positions
@@ -628,7 +698,8 @@ class MeshTransformer(Module):
 
         ce_loss = F.cross_entropy(
             rearrange(logits, 'b n c -> b c n'),
-            labels
+            labels,
+            ignore_index = self.pad_id
         )
 
         return ce_loss
