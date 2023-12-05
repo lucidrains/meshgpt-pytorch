@@ -88,7 +88,7 @@ faces_coordinates = transformer.generate()
      - [x] properly mask out eos logit during generation
      - [x] make sure it trains
          - [x] take care of sos token automatically
-         - [ ] take care of eos token automatically if sequence length or mask is passed in
+         - [x] take care of eos token automatically if sequence length or mask is passed in
      - [ ] generation + cache kv
      - [ ] speculative decoding option
      - [ ] hierarchical transformers (using the RQ transformer)

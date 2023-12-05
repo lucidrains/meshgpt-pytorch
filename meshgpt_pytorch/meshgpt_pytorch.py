@@ -517,7 +517,7 @@ class MeshTransformer(Module):
         for i in range(curr_length, self.max_seq_len):
             can_eos = divisible_by(i + 1, self.num_quantizers * 3)  # only allow for eos to be decoded at the end of each face, defined as 3 vertices with D residusl VQ codes
 
-            logits = self.forward(codes, return_loss = False)
+            logits = self.forward(codes, return_loss = False, append_eos = False)
             logits = logits[:, -1]
 
             if not can_eos:
@@ -539,7 +539,9 @@ class MeshTransformer(Module):
     def forward(
         self,
         codes = None,
-        return_loss = True
+        return_loss = True,
+        append_eos = False,
+        code_lens: Optional[Tensor] = None  # needed for inserting eos automatically for variable lengthed meshes
     ):
         if codes.ndim > 2:
             codes = rearrange(codes, 'b ... -> b (...)')
@@ -548,9 +550,24 @@ class MeshTransformer(Module):
 
         assert seq_len <= self.max_seq_len
 
+        # auto append eos token
+
+        if append_eos:
+            code_lens = default(code_lens, torch.full((batch, 1), seq_len, device = device))
+            codes = F.pad(codes, (0, 1), value = 0)
+
+            batch_arange = torch.arange(batch, device = device)
+            batch_arange = rearrange(batch_arange, '... -> ... 1')
+
+            codes[batch_arange, code_lens] = self.eos_token_id
+
+        # if returning loss, save the labels for cross entropy
+
         if return_loss:
             assert seq_len > 0
             codes, labels = codes[:, :-1], codes
+
+        # token embed (each residual VQ id)
 
         codes = self.token_embed(codes)
 
@@ -564,12 +581,12 @@ class MeshTransformer(Module):
 
         code_len = codes.shape[1]
 
-        level_embed = repeat(self.quantize_level_embed, 'q d -> (r q) d', r = ceil(seq_len / self.num_quantizers))
+        level_embed = repeat(self.quantize_level_embed, 'q d -> (r q) d', r = ceil(code_len / self.num_quantizers))
         codes = codes + level_embed[:code_len]
 
         # embedding for each vertex
 
-        vertex_embed = repeat(self.vertex_embed, 'nv d -> (r nv q) d', r = ceil(seq_len / (3 * self.num_quantizers)), q = self.num_quantizers)
+        vertex_embed = repeat(self.vertex_embed, 'nv d -> (r nv q) d', r = ceil(code_len / (3 * self.num_quantizers)), q = self.num_quantizers)
         codes = codes + vertex_embed[:code_len]
 
         # auto prepend sos token
