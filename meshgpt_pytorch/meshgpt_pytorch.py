@@ -179,6 +179,7 @@ class MeshAutoencoder(Module):
         codebook_size = 16384,        # they use 16k, shared codebook between layers
         use_residual_lfq = True,      # whether to use the latest lookup-free quantization
         rq_kwargs: dict = dict(),
+        rvq_stochastic_sample_codes = True,
         commit_loss_weight = 0.1,
         bin_smooth_blur_sigma = 0.4,  # they blur the one hot discretized coordinate positions
         pad_id = -1
@@ -218,6 +219,7 @@ class MeshAutoencoder(Module):
                 codebook_size = codebook_size,
                 shared_codebook = True,
                 commitment_weight = 1.,
+                stochastic_sample_codes = rvq_stochastic_sample_codes,
                 **rq_kwargs
             )
 
@@ -309,7 +311,8 @@ class MeshAutoencoder(Module):
         faces: TensorType['b', 'nf', 3, int],
         face_mask: TensorType['b', 'n', bool],
         face_embed: TensorType['b', 'nf', 'd', float],
-        pad_id = None
+        pad_id = None,
+        rvq_sample_codebook_temp = 1.
     ):
         pad_id = default(pad_id, self.pad_id)
         batch, num_faces, device = *faces.shape[:2], faces.device
@@ -348,7 +351,7 @@ class MeshAutoencoder(Module):
 
         # residual VQ
 
-        quantized, codes, commit_loss = self.quantizer(averaged_vertices, mask = mask)
+        quantized, codes, commit_loss = self.quantizer(averaged_vertices, mask = mask, sample_codebook_temp = rvq_sample_codebook_temp)
 
         # gather quantized vertexes back to faces for decoding
         # now the faces have quantized vertices
@@ -455,7 +458,8 @@ class MeshAutoencoder(Module):
         face_len: TensorType['b', int],
         face_edges_len: TensorType['b', int],
         return_codes = False,
-        return_loss_breakdown = False
+        return_loss_breakdown = False,
+        rvq_sample_codebook_temp = 1.
     ):
         num_faces, num_face_edges, device = faces.shape[1], face_edges.shape[-1], faces.device
 
@@ -479,7 +483,8 @@ class MeshAutoencoder(Module):
         quantized, codes, commit_loss = self.quantize(
             face_embed = encoded,
             faces = faces,
-            face_mask = face_mask
+            face_mask = face_mask,
+            rvq_sample_codebook_temp = rvq_sample_codebook_temp
         )
 
         if return_codes:
