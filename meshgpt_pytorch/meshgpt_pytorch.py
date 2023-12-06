@@ -1,4 +1,4 @@
-from math import ceil, log2
+from math import ceil
 
 import torch
 from torch import nn, Tensor, einsum
@@ -648,6 +648,7 @@ class MeshTransformer(Module):
         attn_depth = 12,
         attn_dim_head = 64,
         attn_heads = 16,
+        flash_attn = True,
         attn_kwargs: dict = dict(
             ff_glu = True,
             num_mem_kv = 4
@@ -683,6 +684,7 @@ class MeshTransformer(Module):
             depth = attn_depth,
             dim_head = attn_dim_head,
             heads = attn_heads,
+            flash_attn = flash_attn,
             **attn_kwargs
         )
 
