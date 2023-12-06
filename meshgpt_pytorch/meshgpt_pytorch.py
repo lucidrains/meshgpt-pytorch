@@ -349,9 +349,16 @@ class MeshAutoencoder(Module):
         mask = torch.ones((batch, num_vertices + 1), device = device, dtype = torch.bool)
         mask[:, -1] = False
 
+        # rvq specific kwargs
+
+        quantize_kwargs = dict()
+
+        if isinstance(self.quantizer, ResidualVQ):
+            quantize_kwargs.update(sample_codebook_temp = rvq_sample_codebook_temp)
+
         # residual VQ
 
-        quantized, codes, commit_loss = self.quantizer(averaged_vertices, mask = mask, sample_codebook_temp = rvq_sample_codebook_temp)
+        quantized, codes, commit_loss = self.quantizer(averaged_vertices, mask = mask, **quantize_kwargs)
 
         # gather quantized vertexes back to faces for decoding
         # now the faces have quantized vertices
