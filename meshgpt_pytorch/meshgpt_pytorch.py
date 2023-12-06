@@ -611,7 +611,9 @@ class MeshTransformer(Module):
         curr_length = codes.shape[-1]
 
         for i in tqdm(range(curr_length, self.max_seq_len)):
-            can_eos = divisible_by(i + 1, self.num_quantizers * 3)  # only allow for eos to be decoded at the end of each face, defined as 3 vertices with D residusl VQ codes
+            # [sos] v1([q1] [q2] [q1] [q2] [q1] [q2]) v2([q1] [q2] [q1] [q2] [q1] [q2]) -> 0 1 2 3 4 5 6 7 8 9 10 11 12 -> F v1(F F F F F T) v2(F F F F F T)
+
+            can_eos = i != 0 and divisible_by(i, self.num_quantizers * 3)  # only allow for eos to be decoded at the end of each face, defined as 3 vertices with D residual VQ codes
 
             logits = self.forward(codes, return_loss = False, append_eos = False)
             logits = logits[:, -1]
