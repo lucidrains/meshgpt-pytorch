@@ -16,7 +16,7 @@ from einops.layers.torch import Rearrange
 
 from x_transformers import Decoder
 from x_transformers.attend import Attend
-from x_transformers.x_transformers import LayerIntermediates
+from x_transformers.x_transformers import RMSNorm, LayerIntermediates
 
 from x_transformers.autoregressive_wrapper import (
     eval_decorator,
@@ -48,6 +48,9 @@ def divisible_by(num, den):
 
 def l1norm(t):
     return F.normalize(t, dim = -1, p = 1)
+
+def l2norm(t):
+    return F.normalize(t, dim = -1, p = 2)
 
 # tensor helper functions
 
@@ -162,6 +165,72 @@ class ResnetBlock(Module):
         h = self.block2(h, mask = mask)
         return h + x
 
+# linear attention
+
+class LinearAttention(Module):
+    """
+    using the specific linear attention proposed by El-Nouby et al. (https://arxiv.org/abs/2106.09681)
+    """
+
+    @beartype
+    def __init__(
+        self,
+        dim,
+        *,
+        dim_head = 32,
+        heads = 8,
+        scale = 8,
+        flash = False,
+        dropout = 0.
+    ):
+        super().__init__()
+        dim_inner = dim_head * heads
+
+        self.norm = RMSNorm(dim)
+
+        self.to_qkv = nn.Sequential(
+            nn.Linear(dim, dim_inner * 3, bias = False),
+            Rearrange('b n (qkv h d) -> qkv b h d n', qkv = 3, h = heads)
+        )
+
+        self.temperature = nn.Parameter(torch.ones(heads, 1, 1))
+
+        self.attend = Attend(
+            scale = scale,
+            causal = False,
+            dropout = dropout,
+            flash = flash
+        )
+
+        self.to_out = nn.Sequential(
+            Rearrange('b h d n -> b n (h d)'),
+            nn.Linear(dim_inner, dim)
+        )
+
+    def forward(
+        self,
+        x,
+        mask = None
+    ):
+        x = rearrange(x, 'b d n -> b n d')
+
+        x = self.norm(x)
+        q, k, v = self.to_qkv(x)
+
+        q, k = map(l2norm, (q, k))
+        q = q * self.temperature.exp()
+
+        if exists(mask):
+            mask = rearrange(mask, 'b n -> b 1 1 n')
+            q = q.masked_fill(~mask, 0.)
+            k = k.masked_fill(~mask, 0.)
+            v = v.masked_fill(~mask, 0.)
+
+        out, *_ = self.attend(q, k, v)
+
+        out = self.to_out(out)
+        return rearrange(out, 'b n d -> b d n')
+
 # main classes
 
 class MeshAutoencoder(Module):
@@ -182,7 +251,9 @@ class MeshAutoencoder(Module):
         rvq_stochastic_sample_codes = True,
         commit_loss_weight = 0.1,
         bin_smooth_blur_sigma = 0.4,  # they blur the one hot discretized coordinate positions
-        pad_id = -1
+        linear_attention = True,
+        pad_id = -1,
+        flash_attn = True
     ):
         super().__init__()
 
@@ -196,7 +267,6 @@ class MeshAutoencoder(Module):
 
         for _ in range(encoder_depth):
             sage_conv = SAGEConv(dim, dim)
-
             self.encoders.append(sage_conv)
 
         self.codebook_size = codebook_size
@@ -230,8 +300,13 @@ class MeshAutoencoder(Module):
         self.decoders = ModuleList([])
 
         for _ in range(decoder_depth):
+            attn = LinearAttention(dim, flash = flash_attn) if linear_attention else None
             resnet_block = ResnetBlock(dim)
-            self.decoders.append(resnet_block)
+
+            self.decoders.append(ModuleList([
+                attn,
+                resnet_block
+            ]))
 
         self.to_coor_logits = nn.Sequential(
             nn.Linear(dim, num_discrete_coors * 9),
@@ -389,13 +464,16 @@ class MeshAutoencoder(Module):
         quantized: TensorType['b', 'n', 'd', float],
         face_mask:  TensorType['b', 'n', bool]
     ):
-        quantized = rearrange(quantized, 'b n d -> b d n')
-        face_mask = rearrange(face_mask, 'b n -> b 1 n')
+        conv_face_mask = rearrange(face_mask, 'b n -> b 1 n')
 
         x = quantized
+        x = rearrange(x, 'b n d -> b d n')
 
-        for resnet_block in self.decoders:
-            x = resnet_block(x, mask = face_mask)
+        for maybe_attn, resnet_block in self.decoders:
+            if exists(maybe_attn):
+                x = maybe_attn(x, mask = face_mask) + x
+
+            x = resnet_block(x, mask = conv_face_mask)
 
         return rearrange(x, 'b d n -> b n d')
 
