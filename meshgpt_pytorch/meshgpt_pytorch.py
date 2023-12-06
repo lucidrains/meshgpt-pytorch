@@ -16,6 +16,8 @@ from einops.layers.torch import Rearrange
 
 from x_transformers import Decoder
 from x_transformers.attend import Attend
+from x_transformers.x_transformers import LayerIntermediates
+
 from x_transformers.autoregressive_wrapper import (
     eval_decorator,
     top_k,
@@ -664,7 +666,7 @@ class MeshTransformer(Module):
         face_edges:     TensorType['b', 2, 'e', int],
         face_len:       TensorType['b', int],
         face_edges_len: TensorType['b', int],
-        **kwargs
+        cache: Optional[LayerIntermediates] = None
     ):
         codes = self.autoencoder.tokenize(
             vertices = vertices,
@@ -674,7 +676,7 @@ class MeshTransformer(Module):
             face_edges_len = face_edges_len
         )
 
-        return self.forward_on_codes(codes, **kwargs)
+        return self.forward_on_codes(codes, cache = cache)
 
     def forward_on_codes(
         self,
@@ -683,7 +685,7 @@ class MeshTransformer(Module):
         return_cache = False,
         append_eos = False,
         code_lens: Optional[Tensor] = None,  # needed for inserting eos automatically for variable lengthed meshes
-        **kwargs
+        cache: Optional[LayerIntermediates] = None
     ):
         if codes.ndim > 2:
             codes = rearrange(codes, 'b ... -> b (...)')
@@ -741,7 +743,11 @@ class MeshTransformer(Module):
 
         # attention
 
-        attended, intermediates_with_cache = self.decoder(codes, return_hiddens = True, **kwargs)
+        attended, intermediates_with_cache = self.decoder(
+            codes,
+            return_hiddens = True,
+            cache = cache
+        )
 
         # logits
 
