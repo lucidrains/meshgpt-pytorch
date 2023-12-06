@@ -341,18 +341,14 @@ class MeshAutoencoder(Module):
 
         averaged_vertices = scatter_mean(vertices, faces_with_dim, face_embed, dim = -2)
 
-        # prevent null vertex token from being quantized, so commitment loss is correct
+        # mask out null vertex token
 
-        averaged_vertices, null_vertex_token = averaged_vertices[:, :-1], averaged_vertices[:, -1]
+        mask = torch.ones((batch, num_vertices + 1), device = device, dtype = torch.bool)
+        mask[:, -1] = False
 
         # residual VQ
 
-        quantized, codes, commit_loss = self.quantizer(averaged_vertices)
-
-        # concat null vertex token back
-
-        codes = F.pad(codes, (0, 0, 0, 1), value = 0)
-        quantized, _ = pack([quantized, null_vertex_token], 'b * d')
+        quantized, codes, commit_loss = self.quantizer(averaged_vertices, mask = mask)
 
         # gather quantized vertexes back to faces for decoding
         # now the faces have quantized vertices
