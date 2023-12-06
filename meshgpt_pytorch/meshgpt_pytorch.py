@@ -1,4 +1,4 @@
-from math import ceil
+from math import ceil, log2
 
 import torch
 from torch import nn, Tensor, einsum
@@ -172,6 +172,7 @@ class MeshAutoencoder(Module):
         dim_codebook = 192,
         num_quantizers = 2,           # or 'D' in the paper
         codebook_size = 16384,        # they use 16k, shared codebook between layers
+        use_residual_lfq = True,      # whether to use the latest lookup-free quantization
         rq_kwargs: dict = dict(),
         commit_loss_weight = 0.1,
         bin_smooth_blur_sigma = 0.4,  # they blur the one hot discretized coordinate positions
@@ -197,14 +198,25 @@ class MeshAutoencoder(Module):
 
         self.project_dim_codebook = nn.Linear(dim, dim_codebook * 3)
 
-        self.quantizer = ResidualVQ(
-            dim = dim_codebook,
-            num_quantizers = num_quantizers,
-            codebook_size = codebook_size,
-            shared_codebook = True,
-            commitment_weight = 1.,
-            **rq_kwargs
-        )
+        if use_residual_lfq:
+            assert log2(codebook_size).is_integer()
+
+            self.quantizer = ResidualLFQ(
+                dim = dim_codebook,
+                num_quantizers = num_quantizers,
+                codebook_size = codebook_size,
+                commitment_loss_weight = 1.,
+                **rq_kwargs
+            )
+        else:
+            self.quantizer = ResidualVQ(
+                dim = dim_codebook,
+                num_quantizers = num_quantizers,
+                codebook_size = codebook_size,
+                shared_codebook = True,
+                commitment_weight = 1.,
+                **rq_kwargs
+            )
 
         self.pad_id = pad_id # for variable lengthed faces, padding quantized ids will be set to this value
 

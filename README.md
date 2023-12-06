@@ -94,8 +94,8 @@ faces_coordinates = transformer.generate()
     - [x] proper scatter mean accounting for padding for meaning the vertices and RVQ the vertices before gathering back for decoder
     - [x] complete decoder and reconstruction loss + commitment loss
     - [x] handle variable lengthed faces
+    - [x] add option to use residual LFQ, latest quantization development that scales code utilization
     - [ ] xcit linear attention in both encoder / decoder
-    - [ ] add option to use residual FSQ / LFQ, latest quantization development
 
 - [ ] transformer
     - [x] properly mask out eos logit during generation
