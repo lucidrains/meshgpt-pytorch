@@ -1,6 +1,6 @@
 <img src="./meshgpt.png" width="450px"></img>
 
-## MeshGPT - Pytorch (wip)
+## MeshGPT - Pytorch
 
 Implementation of <a href="https://arxiv.org/abs/2311.15475">MeshGPT</a>, SOTA Mesh generation using Attention, in Pytorch
 
