@@ -401,6 +401,7 @@ class MeshAutoencoder(Module):
         quantized = self.quantizer.get_output_from_indices(codes)
         quantized = rearrange(quantized, 'b (nf nv) d -> b nf (nv d)', nv = 3)
 
+        quantized = quantized.masked_fill(~face_mask[..., None], 0.)
         face_embed_output = self.project_codebook_out(quantized)
 
         decoded = self.decode(
@@ -408,7 +409,9 @@ class MeshAutoencoder(Module):
             face_mask = face_mask
         )
 
+        decoded = decoded.masked_fill(~face_mask[..., None], 0.)
         pred_face_coords = self.to_coor_logits(decoded)
+
         pred_face_coords = pred_face_coords.argmax(dim = -1)
 
         pred_face_coords = rearrange(pred_face_coords, '... (v c) -> ... v c', v = 3)
@@ -497,7 +500,10 @@ class MeshAutoencoder(Module):
 
             # cross entropy with localized smoothing
 
-            recon_loss = (-target_one_hot * pred_log_prob).sum(dim = 1).mean()
+            recon_losses = (-target_one_hot * pred_log_prob).sum(dim = 1)
+
+            face_mask = repeat(face_mask, 'b nf -> b (nf r)', r = 9)
+            recon_loss = recon_losses[face_mask].mean()
 
         # calculate total loss
 
