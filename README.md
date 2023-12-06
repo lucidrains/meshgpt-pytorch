@@ -59,8 +59,15 @@ loss = autoencoder(
 loss.backward()
 
 # after much training...
+# you can pass in the raw face data above to train a transformer to model this sequence of face vertices
 
-face_vertex_codes = autoencoder.tokenize(
+transformer = MeshTransformer(
+    autoencoder,
+    dim = 16,
+    max_seq_len = 768
+)
+
+loss = transformer(
     vertices = vertices,
     faces = faces,
     face_edges = face_edges,
@@ -68,23 +75,15 @@ face_vertex_codes = autoencoder.tokenize(
     face_edges_len = face_edges_len
 )
 
-# now train your transformer to generate this sequence of codes
-
-transformer = MeshTransformer(
-    autoencoder,
-    dim = 512,
-    max_seq_len = 768
-)
-
-loss = transformer(face_vertex_codes)
 loss.backward()
 
-# after much training of transformer, you can now sample from the attention net
+# after much training of transformer, you can now sample novel 3d assets
 
 faces_coordinates = transformer.generate()
 
 # (batch, num faces, vertices (3), coordinates (3))
 # now post process for the generated 3d asset
+
 ```
 
 ## Todo

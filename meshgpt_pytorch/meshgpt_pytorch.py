@@ -615,7 +615,7 @@ class MeshTransformer(Module):
 
             can_eos = i != 0 and divisible_by(i, self.num_quantizers * 3)  # only allow for eos to be decoded at the end of each face, defined as 3 vertices with D residual VQ codes
 
-            logits = self.forward(codes, return_loss = False, append_eos = False)
+            logits = self.forward_on_codes(codes, return_loss = False, append_eos = False)
             logits = logits[:, -1]
 
             if not can_eos:
@@ -647,7 +647,7 @@ class MeshTransformer(Module):
         self.autoencoder.eval()
         return self.autoencoder.decode_from_codes_to_faces(codes)
 
-    def forward_from_raw_face_data(
+    def forward(
         self,
         *,
         vertices:       TensorType['b', 'nv', 3, int],
@@ -665,9 +665,9 @@ class MeshTransformer(Module):
             face_edges_len = face_edges_len
         )
 
-        return self.forward(codes, **kwargs)
+        return self.forward_on_codes(codes, **kwargs)
 
-    def forward(
+    def forward_on_codes(
         self,
         codes = None,
         return_loss = True,
