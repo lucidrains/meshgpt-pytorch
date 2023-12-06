@@ -336,9 +336,18 @@ class MeshAutoencoder(Module):
 
         averaged_vertices = scatter_mean(vertices, faces_with_dim, face_embed, dim = -2)
 
+        # prevent null vertex token from being quantized, so commitment loss is correct
+
+        averaged_vertices, null_vertex_token = averaged_vertices[:, :-1], averaged_vertices[:, -1]
+
         # residual VQ
 
         quantized, codes, commit_loss = self.quantizer(averaged_vertices)
+
+        # concat null vertex token back
+
+        codes = F.pad(codes, (0, 0, 0, 1), value = 0)
+        quantized, _ = pack([quantized, null_vertex_token], 'b * d')
 
         # gather quantized vertexes back to faces for decoding
         # now the faces have quantized vertices
