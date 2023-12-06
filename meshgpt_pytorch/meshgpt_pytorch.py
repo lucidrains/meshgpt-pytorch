@@ -582,6 +582,10 @@ class MeshTransformer(Module):
 
         self.pad_id = pad_id
 
+        # force the autoencoder to use the same pad_id given in transformer
+
+        autoencoder.pad_id = pad_id
+
     @property
     def device(self):
         return next(self.parameters()).device
