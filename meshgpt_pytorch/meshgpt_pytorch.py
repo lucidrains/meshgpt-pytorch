@@ -627,6 +627,17 @@ class MeshTransformer(Module):
             sample = torch.multinomial(probs, 1)
             codes, _ = pack([codes, sample], 'b *')
 
+            # check for all rows to have [eos] to terminate
+
+            is_eos_codes = (codes == self.eos_token_id)
+
+            if not is_eos_codes.any(dim = -1).all():
+                continue
+
+            shifted_is_eos_tokens = F.pad(is_eos_codes, (1, -1))
+            mask = shifted_is_eos_tokens.float().cumsum(dim = -1) >= 1
+            codes = codes.masked_fill(mask, self.pad_id)
+
         if return_codes:
             codes = codes[:, 1:] # remove sos
             codes = rearrange(codes, 'b (n q) -> b n q', q = self.num_quantizers)

@@ -104,7 +104,7 @@ faces_coordinates = transformer.generate()
         - [x] take care of eos token automatically if sequence length or mask is passed in
     - [x] handle variable lengthed faces
         - [x] on forwards
-        - [ ] on generation, do all eos logic + substitute everything after eos with pad id
+        - [x] on generation, do all eos logic + substitute everything after eos with pad id
     - [ ] generation + cache kv
     - [ ] speculative decoding option
     - [ ] hierarchical transformers (using the RQ transformer)
