@@ -610,12 +610,21 @@ class MeshTransformer(Module):
 
         curr_length = codes.shape[-1]
 
+        cache = None
+
         for i in tqdm(range(curr_length, self.max_seq_len)):
             # [sos] v1([q1] [q2] [q1] [q2] [q1] [q2]) v2([q1] [q2] [q1] [q2] [q1] [q2]) -> 0 1 2 3 4 5 6 7 8 9 10 11 12 -> F v1(F F F F F T) v2(F F F F F T)
 
             can_eos = i != 0 and divisible_by(i, self.num_quantizers * 3)  # only allow for eos to be decoded at the end of each face, defined as 3 vertices with D residual VQ codes
 
-            logits = self.forward_on_codes(codes, return_loss = False, append_eos = False)
+            logits, cache = self.forward_on_codes(
+                codes,
+                cache = cache,
+                return_loss = False,
+                return_cache = True,
+                append_eos = False
+            )
+
             logits = logits[:, -1]
 
             if not can_eos:
@@ -671,8 +680,10 @@ class MeshTransformer(Module):
         self,
         codes = None,
         return_loss = True,
+        return_cache = False,
         append_eos = False,
-        code_lens: Optional[Tensor] = None  # needed for inserting eos automatically for variable lengthed meshes
+        code_lens: Optional[Tensor] = None,  # needed for inserting eos automatically for variable lengthed meshes
+        **kwargs
     ):
         if codes.ndim > 2:
             codes = rearrange(codes, 'b ... -> b (...)')
@@ -730,14 +741,17 @@ class MeshTransformer(Module):
 
         # attention
 
-        attended = self.decoder(codes)
+        attended, intermediates_with_cache = self.decoder(codes, return_hiddens = True, **kwargs)
 
         # logits
 
         logits = self.to_logits(attended)
 
         if not return_loss:
-            return logits
+            if not return_cache:
+                return logits
+
+            return logits, intermediates_with_cache
 
         # loss
 
