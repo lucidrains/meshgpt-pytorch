@@ -108,6 +108,7 @@ faces_coordinates = transformer.generate()
     - [ ] speculative decoding option
     - [ ] hierarchical transformers (using the RQ transformer)
 
+- [ ] text conditioning using own CFG library
 - [ ] trainer wrapper with hf accelerate
     - [ ] autoencoder - take care of ema
     - [ ] transformer
