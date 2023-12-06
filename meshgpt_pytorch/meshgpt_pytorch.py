@@ -377,9 +377,13 @@ class MeshAutoencoder(Module):
         face_mask: Optional[TensorType['b', 'n', bool]] = None,
         return_discrete_codes = False
     ):
+        codes = rearrange(codes, 'b ... -> b (...)')
+
+        if not exists(face_mask):
+            face_mask = reduce(codes != self.pad_id, 'b (nf nv q) -> b nf', 'all', nv = 3, q = self.num_quantizers)
+
         # handle different code shapes
 
-        codes = rearrange(codes, 'b ... -> b (...)')
         codes = rearrange(codes, 'b (n q) -> b n q', q = self.num_quantizers)
 
         # decode
