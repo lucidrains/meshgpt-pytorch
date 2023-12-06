@@ -94,7 +94,7 @@ faces_coordinates = transformer.generate()
     - [x] complete decoder and reconstruction loss + commitment loss
     - [x] handle variable lengthed faces
     - [x] add option to use residual LFQ, latest quantization development that scales code utilization
-    - [x] xcit linear attention in autoencoder decoder - encode is difficult given in specific format for graph convs
+    - [x] xcit linear attention inencoder and decoder
 
 - [ ] transformer
     - [x] properly mask out eos logit during generation

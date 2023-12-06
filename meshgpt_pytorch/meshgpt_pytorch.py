@@ -266,8 +266,13 @@ class MeshAutoencoder(Module):
         self.encoders = ModuleList([])
 
         for _ in range(encoder_depth):
+            attn = LinearAttention(dim, flash = flash_attn) if linear_attention else None
             sage_conv = SAGEConv(dim, dim)
-            self.encoders.append(sage_conv)
+
+            self.encoders.append(ModuleList([
+                attn,
+                sage_conv
+            ]))
 
         self.codebook_size = codebook_size
         self.num_quantizers = num_quantizers
@@ -325,6 +330,7 @@ class MeshAutoencoder(Module):
         vertices:         TensorType['b', 'nv', 3, int],
         faces:            TensorType['b', 'nf', 3, int],
         face_edges:       TensorType['b', 2, 'e', int],
+        face_mask:        TensorType['b', 'nf', bool],
         face_edges_mask:  TensorType['b', 'e', bool],
         return_face_coordinates = False
     ):
@@ -357,7 +363,9 @@ class MeshAutoencoder(Module):
         # padding for edges will refer to this node
 
         pad_node_id = face_embed.shape[0]
-        face_embed = F.pad(face_embed, (0, 0, 0, 1), value = 0.)
+        pad_token = torch.zeros((face_embed.shape[-1],))
+
+        face_embed, pad_ps = pack([face_embed, pad_token], '* d')
 
         batch_arange = torch.arange(batch, device = device)
         batch_offset = batch_arange * num_faces
@@ -368,7 +376,17 @@ class MeshAutoencoder(Module):
         face_edges = face_edges.masked_fill(~face_edges_mask, pad_node_id)
         face_edges = rearrange(face_edges, 'b ij e -> ij (b e)')
 
-        for conv in self.encoders:
+        for maybe_attn, conv in self.encoders:
+
+            if exists(maybe_attn):
+                face_embed, pad_token = unpack(face_embed, pad_ps, '* d')
+                face_embed = rearrange(face_embed, '(b nf) d -> b d nf', b = batch)
+
+                face_embed = maybe_attn(face_embed, mask = face_mask) + face_embed
+
+                face_embed = rearrange(face_embed, 'b d nf -> (b nf) d')
+                face_embed, _ = pack([face_embed, pad_token], '* d')
+
             face_embed = conv(face_embed, face_edges)
 
         face_embed = face_embed[:-1] # remove padding node
@@ -562,6 +580,7 @@ class MeshAutoencoder(Module):
             faces = faces,
             face_edges = face_edges,
             face_edges_mask = face_edges_mask,
+            face_mask = face_mask,
             return_face_coordinates = True
         )
 
