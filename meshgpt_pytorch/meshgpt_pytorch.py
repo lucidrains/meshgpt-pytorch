@@ -113,6 +113,9 @@ def scatter_mean(
     dim: int = -1,
     eps: float = 1e-5
 ):
+    """
+    todo: update to pytorch 2.1 and try https://pytorch.org/docs/stable/generated/torch.Tensor.scatter_reduce_.html#torch.Tensor.scatter_reduce_
+    """
     num = tgt.scatter_add(dim, indices, src)
     den = torch.zeros_like(tgt).scatter_add(dim, indices, torch.ones_like(src))
     return num / den.clamp(min = eps)
