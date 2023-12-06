@@ -199,8 +199,6 @@ class MeshAutoencoder(Module):
         self.project_dim_codebook = nn.Linear(dim, dim_codebook * 3)
 
         if use_residual_lfq:
-            assert log2(codebook_size).is_integer()
-
             self.quantizer = ResidualLFQ(
                 dim = dim_codebook,
                 num_quantizers = num_quantizers,
