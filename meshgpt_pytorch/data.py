@@ -51,10 +51,21 @@ def derive_face_edges_from_faces(
 # custom collater
 
 def custom_collate(data, pad_id = -1):
+    is_dict = isinstance(data[0], dict)
+
+    if is_dict:
+        keys = data[0].keys()
+        data = [d.values() for d in data]
+
     output = []
 
     for datum in zip(*data):
         padded = pad_sequence(datum, batch_first = True, padding_value = pad_id)
         output.append(padded)
 
-    return tuple(output)
+    output = tuple(output)
+
+    if is_dict:
+        output = dict(zip(keys, output))
+
+    return output

@@ -199,12 +199,15 @@ class MeshAutoencoderTrainer(Module):
         while step < self.num_train_steps:
 
             with self.accelerator.autocast():
-                vertices, faces = next(dl_iter)
+                data = next(dl_iter)
 
-                loss = self.model(
-                    vertices = vertices,
-                    faces = faces
-                )
+                if isinstance(data, tuple):
+                    vertices, faces = data
+                    forward_kwargs = dict(vertices = vertices, faces = faces)
+                elif isinstance(data, dict):
+                    forward_kwargs = data
+
+                loss = self.model(**forward_kwargs)
 
                 self.accelerator.backward(loss)
 
@@ -339,12 +342,15 @@ class MeshTransformerTrainer(Module):
         while step < self.num_train_steps:
 
             with self.accelerator.autocast():
-                vertices, faces = next(dl_iter)
+                data = next(dl_iter)
 
-                loss = self.model(
-                    vertices = vertices,
-                    faces = faces
-                )
+                if isinstance(data, tuple):
+                    vertices, faces = data
+                    forward_kwargs = dict(vertices = vertices, faces = faces)
+                elif isinstance(data, dict):
+                    forward_kwargs = data
+
+                loss = self.model(**forward_kwargs)
 
                 self.accelerator.backward(loss)
 
