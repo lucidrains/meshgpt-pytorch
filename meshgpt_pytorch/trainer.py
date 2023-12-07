@@ -165,7 +165,8 @@ class MeshAutoencoderTrainer(Module):
             model = self.unwrapped_model.state_dict(),
             ema_model = self.ema_model.state_dict(),
             optimizer = self.optimizer.state_dict(),
-            version = __version__
+            version = __version__,
+            step = self.step.item()
         )
 
         torch.save(pkg, str(path))
@@ -182,12 +183,13 @@ class MeshAutoencoderTrainer(Module):
         self.model.load_state_dict(pkg['model'])
         self.ema_model.load_state_dict(pkg['ema_model'])
         self.optimizer.load_state_dict(pkg['optimizer'])
+        self.step.copy_(pkg['step'])
 
     def forward(self):
         step = self.step.item()
         dl_iter = cycle(self.dataloader)
 
-        for _ in range(self.num_train_steps):
+        while step < self.num_train_steps:
 
             with self.accelerator.autocast():
                 vertices, faces = next(dl_iter)
@@ -304,6 +306,7 @@ class MeshTransformerTrainer(Module):
         pkg = dict(
             model = self.unwrapped_model.state_dict(),
             optimizer = self.optimizer.state_dict(),
+            step = self.step.item(),
             version = __version__
         )
 
@@ -320,12 +323,13 @@ class MeshTransformerTrainer(Module):
 
         self.model.load_state_dict(pkg['model'])
         self.optimizer.load_state_dict(pkg['optimizer'])
+        self.step.copy_(pkg['step'])
 
     def forward(self):
         step = self.step.item()
         dl_iter = cycle(self.dataloader)
 
-        for _ in range(self.num_train_steps):
+        while step < self.num_train_steps:
 
             with self.accelerator.autocast():
                 vertices, faces = next(dl_iter)
