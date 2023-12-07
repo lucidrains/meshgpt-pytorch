@@ -815,7 +815,6 @@ class MeshTransformer(Module):
         return_loss = True,
         return_cache = False,
         append_eos = False,
-        code_lens: Optional[Tensor] = None,  # needed for inserting eos automatically for variable lengthed meshes
         cache: Optional[LayerIntermediates] = None
     ):
         if codes.ndim > 2:
@@ -830,7 +829,8 @@ class MeshTransformer(Module):
         # auto append eos token
 
         if append_eos:
-            code_lens = default(code_lens, torch.full((batch, 1), seq_len, device = device))
+            code_lens = ((codes != self.pad_id).cumsum(dim = -1) == 0).sum(dim = -1)
+
             codes = F.pad(codes, (0, 1), value = 0)
 
             batch_arange = torch.arange(batch, device = device)
