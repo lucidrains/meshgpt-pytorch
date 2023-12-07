@@ -39,12 +39,12 @@ autoencoder = MeshAutoencoder(
 
 # mock inputs
 
-vertices = torch.randn((2, 121, 3))
-faces = torch.randint(0, 121, (2, 64, 3))
-face_edges = torch.randint(0, 64, (2, 2, 96))
+vertices = torch.randn((2, 121, 3))            # (batch, num vertices, coor (3))
+faces = torch.randint(0, 121, (2, 64, 3))      # (batch, num faces, vertices (3))
+face_edges = torch.randint(0, 64, (2, 2, 96))  # (batch, source target, num edges)
 
-face_len = torch.randint(1, 64, (2,))
-face_edges_len = torch.randint(1, 96, (2,))
+face_len = torch.randint(1, 64, (2,))          # (batch,)
+face_edges_len = torch.randint(1, 96, (2,))    # (batch,)
 
 # forward in the faces
 
@@ -94,7 +94,7 @@ faces_coordinates = transformer.generate()
     - [x] complete decoder and reconstruction loss + commitment loss
     - [x] handle variable lengthed faces
     - [x] add option to use residual LFQ, latest quantization development that scales code utilization
-    - [x] xcit linear attention inencoder and decoder
+    - [x] xcit linear attention in encoder and decoder
 
 - [ ] transformer
     - [x] properly mask out eos logit during generation
