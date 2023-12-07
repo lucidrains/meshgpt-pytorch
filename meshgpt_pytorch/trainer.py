@@ -71,11 +71,6 @@ def get_optimizer(
 
     return AdamW(params, **opt_kwargs)
 
-# custom collater
-
-def custom_collate(data, pad_id = -1):
-    raise NotImplementedError
-
 # autoencoder trainer
 
 class MeshAutoencoderTrainer(Module):

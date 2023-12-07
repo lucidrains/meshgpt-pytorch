@@ -29,6 +29,8 @@ from vector_quantize_pytorch import (
     ResidualLFQ
 )
 
+from meshgpt_pytorch.data import derive_face_edges_from_faces
+
 from torch_geometric.nn.conv import SAGEConv
 
 from tqdm import tqdm
@@ -369,9 +371,7 @@ class MeshAutoencoder(Module):
         batch_offset = batch_arange * num_faces
         batch_offset = rearrange(batch_offset, 'b -> b 1 1')
 
-        face_edges = face_edges + batch_offset
-
-        face_edges = face_edges.masked_fill(~face_edges_mask, pad_node_id)
+        face_edges = face_edges.masked_fill(~rearrange(face_edges_mask, 'b e -> b 1 e'), pad_node_id)
         face_edges = rearrange(face_edges, 'b ij e -> ij (b e)')
 
         for maybe_attn, conv in self.encoders:
@@ -555,13 +555,16 @@ class MeshAutoencoder(Module):
         *,
         vertices:       TensorType['b', 'nv', 3, float],
         faces:          TensorType['b', 'nf', 3, int],
-        face_edges:     TensorType['b', 2, 'ij', int],
+        face_edges:     Optional[TensorType['b', 2, 'ij', int]] = None,
         face_len:       Optional[TensorType['b', int]] = None,
         face_edges_len: Optional[TensorType['b', int]] = None,
         return_codes = False,
         return_loss_breakdown = False,
         rvq_sample_codebook_temp = 1.
     ):
+        if not exists(face_edges):
+            face_edges = derive_face_edges_from_faces(faces, pad_id = self.pad_id)
+
         num_faces, num_face_edges, device = faces.shape[1], face_edges.shape[-1], faces.device
 
         if exists(face_len):
@@ -782,7 +785,7 @@ class MeshTransformer(Module):
         *,
         vertices:       TensorType['b', 'nv', 3, int],
         faces:          TensorType['b', 'nf', 3, int],
-        face_edges:     TensorType['b', 2, 'e', int],
+        face_edges:     Optional[TensorType['b', 2, 'e', int]] = None,
         face_len:       Optional[TensorType['b', int]] = None,
         face_edges_len: Optional[TensorType['b', int]] = None,
         cache:          Optional[LayerIntermediates] = None
