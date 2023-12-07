@@ -29,8 +29,6 @@ from vector_quantize_pytorch import (
     ResidualLFQ
 )
 
-from ema_pytorch import EMA
-
 from torch_geometric.nn.conv import SAGEConv
 
 from tqdm import tqdm
@@ -555,19 +553,26 @@ class MeshAutoencoder(Module):
     def forward(
         self,
         *,
-        vertices: TensorType['b', 'nv', 3, float],
-        faces: TensorType['b', 'nf', 3, int],
-        face_edges: TensorType['b', 2, 'ij', int],
-        face_len: TensorType['b', int],
-        face_edges_len: TensorType['b', int],
+        vertices:       TensorType['b', 'nv', 3, float],
+        faces:          TensorType['b', 'nf', 3, int],
+        face_edges:     TensorType['b', 2, 'ij', int],
+        face_len:       Optional[TensorType['b', int]] = None,
+        face_edges_len: Optional[TensorType['b', int]] = None,
         return_codes = False,
         return_loss_breakdown = False,
         rvq_sample_codebook_temp = 1.
     ):
         num_faces, num_face_edges, device = faces.shape[1], face_edges.shape[-1], faces.device
 
-        face_mask = torch.arange(num_faces, device = device) < rearrange(face_len, 'b -> b 1')
-        face_edges_mask = torch.arange(num_face_edges, device = device) < rearrange(face_edges_len, 'b -> b 1')
+        if exists(face_len):
+            face_mask = torch.arange(num_faces, device = device) < rearrange(face_len, 'b -> b 1')
+        else:
+            face_mask = reduce(faces != self.pad_id, 'b nf c -> b nf', 'all')
+
+        if exists(face_edges_len):
+            face_edges_mask = torch.arange(num_face_edges, device = device) < rearrange(face_edges_len, 'b -> b 1')
+        else:
+            face_edges_mask = reduce(face_edges != self.pad_id, 'b ij e -> b e', 'all')
 
         discretized_vertices = discretize_coors(
             vertices,
@@ -778,9 +783,9 @@ class MeshTransformer(Module):
         vertices:       TensorType['b', 'nv', 3, int],
         faces:          TensorType['b', 'nf', 3, int],
         face_edges:     TensorType['b', 2, 'e', int],
-        face_len:       TensorType['b', int],
-        face_edges_len: TensorType['b', int],
-        cache: Optional[LayerIntermediates] = None
+        face_len:       Optional[TensorType['b', int]] = None,
+        face_edges_len: Optional[TensorType['b', int]] = None,
+        cache:          Optional[LayerIntermediates] = None
     ):
         codes = self.autoencoder.tokenize(
             vertices = vertices,
@@ -859,8 +864,8 @@ class MeshTransformer(Module):
 
         attended, intermediates_with_cache = self.decoder(
             codes,
+            cache = cache,
             return_hiddens = True,
-            cache = cache
         )
 
         # logits
