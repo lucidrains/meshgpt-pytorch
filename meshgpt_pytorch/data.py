@@ -3,14 +3,17 @@ from torch.nn.utils.rnn import pad_sequence
 
 from einops import rearrange, reduce
 
+from torchtyping import TensorType
+
 # tensor helper functions
 
 def derive_face_edges_from_faces(
-    faces,
+    faces: TensorType['b', 'nf', 3, int],
     pad_id = -1,
     neighbor_if_share_one_vertex = False,
     include_self = True
-):
+) -> TensorType['b', 'e', 2, int]:
+
     is_one_face, device = faces.ndim == 2, faces.device
 
     if is_one_face:
@@ -46,7 +49,7 @@ def derive_face_edges_from_faces(
     if is_one_face:
         face_edges = rearrange(face_edges, '1 e ij -> e ij')
 
-    return rearrange(face_edges, 'b e ij -> b ij e')
+    return face_edges
 
 # custom collater
 

@@ -336,7 +336,7 @@ class MeshAutoencoder(Module):
         *,
         vertices:         TensorType['b', 'nv', 3, int],
         faces:            TensorType['b', 'nf', 3, int],
-        face_edges:       TensorType['b', 2, 'e', int],
+        face_edges:       TensorType['b', 'e', 2, int],
         face_mask:        TensorType['b', 'nf', bool],
         face_edges_mask:  TensorType['b', 'e', bool],
         return_face_coordinates = False
@@ -378,8 +378,8 @@ class MeshAutoencoder(Module):
         batch_offset = batch_arange * num_faces
         batch_offset = rearrange(batch_offset, 'b -> b 1 1')
 
-        face_edges = face_edges.masked_fill(~rearrange(face_edges_mask, 'b e -> b 1 e'), pad_node_id)
-        face_edges = rearrange(face_edges, 'b ij e -> ij (b e)')
+        face_edges = face_edges.masked_fill(~rearrange(face_edges_mask, 'b e -> b e 1'), pad_node_id)
+        face_edges = rearrange(face_edges, 'b e ij -> ij (b e)')
 
         for maybe_attn, conv in self.encoders:
 
@@ -562,7 +562,7 @@ class MeshAutoencoder(Module):
         *,
         vertices:       TensorType['b', 'nv', 3, float],
         faces:          TensorType['b', 'nf', 3, int],
-        face_edges:     Optional[TensorType['b', 2, 'ij', int]] = None,
+        face_edges:     Optional[TensorType['b', 'e', 2, int]] = None,
         face_len:       Optional[TensorType['b', int]] = None,
         face_edges_len: Optional[TensorType['b', int]] = None,
         return_codes = False,
@@ -572,7 +572,7 @@ class MeshAutoencoder(Module):
         if not exists(face_edges):
             face_edges = derive_face_edges_from_faces(faces, pad_id = self.pad_id)
 
-        num_faces, num_face_edges, device = faces.shape[1], face_edges.shape[-1], faces.device
+        num_faces, num_face_edges, device = faces.shape[1], face_edges.shape[1], faces.device
 
         if exists(face_len):
             face_mask = torch.arange(num_faces, device = device) < rearrange(face_len, 'b -> b 1')
@@ -582,7 +582,7 @@ class MeshAutoencoder(Module):
         if exists(face_edges_len):
             face_edges_mask = torch.arange(num_face_edges, device = device) < rearrange(face_edges_len, 'b -> b 1')
         else:
-            face_edges_mask = reduce(face_edges != self.pad_id, 'b ij e -> b e', 'all')
+            face_edges_mask = reduce(face_edges != self.pad_id, 'b e ij -> b e', 'all')
 
         discretized_vertices = discretize_coors(
             vertices,
@@ -794,7 +794,7 @@ class MeshTransformer(Module):
         *,
         vertices:       TensorType['b', 'nv', 3, int],
         faces:          TensorType['b', 'nf', 3, int],
-        face_edges:     Optional[TensorType['b', 2, 'e', int]] = None,
+        face_edges:     Optional[TensorType['b', 'e', 2, int]] = None,
         face_len:       Optional[TensorType['b', int]] = None,
         face_edges_len: Optional[TensorType['b', int]] = None,
         cache:          Optional[LayerIntermediates] = None
