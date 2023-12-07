@@ -90,6 +90,7 @@ faces_coordinates = transformer.generate()
     - [x] handle variable lengthed faces
     - [x] add option to use residual LFQ, latest quantization development that scales code utilization
     - [x] xcit linear attention in encoder and decoder
+    - [ ] figure out how to auto-derive `face_edges` directly from faces and vertices
 
 - [ ] transformer
     - [x] properly mask out eos logit during generation
