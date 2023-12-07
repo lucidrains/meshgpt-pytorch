@@ -15,6 +15,8 @@ from beartype.typing import Optional
 
 from ema_pytorch import EMA
 
+from meshgpt_pytorch.data import custom_collate
+
 from meshgpt_pytorch.meshgpt_pytorch import (
     MeshAutoencoder,
     MeshTransformer
@@ -104,7 +106,13 @@ class MeshAutoencoderTrainer(Module):
 
         self.optimizer = get_optimizer(model.parameters(), lr = learning_rate, wd = weight_decay, **optimizer_kwargs)
 
-        self.dataloader = DataLoader(dataset, batch_size = batch_size, shuffle = True, drop_last = True)
+        self.dataloader = DataLoader(
+            dataset,
+            batch_size = batch_size,
+            shuffle = True,
+            drop_last = True,
+            collate_fn = partial(custom_collate, pad_id = model.pad_id)
+        )
 
         (
             self.model,
@@ -212,7 +220,13 @@ class MeshTransformerTrainer(Module):
             **optimizer_kwargs
         )
 
-        self.dataloader = DataLoader(dataset, batch_size = batch_size, shuffle = True, drop_last = True)
+        self.dataloader = DataLoader(
+            dataset,
+            batch_size = batch_size,
+            shuffle = True,
+            drop_last = True,
+            collate_fn = partial(custom_collate, pad_id = model.pad_id)
+        )
 
         (
             self.model,
