@@ -3,7 +3,7 @@ from setuptools import setup, find_packages
 setup(
   name = 'meshgpt-pytorch',
   packages = find_packages(exclude=[]),
-  version = '0.0.36',
+  version = '0.0.37',
   license='MIT',
   description = 'MeshGPT Pytorch',
   author = 'Phil Wang',

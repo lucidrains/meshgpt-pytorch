@@ -52,6 +52,13 @@ def l1norm(t):
 def l2norm(t):
     return F.normalize(t, dim = -1, p = 2)
 
+def set_module_requires_grad_(
+    module: Module,
+    requires_grad: bool
+):
+    for param in module.parameters():
+        param.requires_grad = requires_grad
+
 # tensor helper functions
 
 @beartype
@@ -666,6 +673,8 @@ class MeshTransformer(Module):
         super().__init__()
 
         self.autoencoder = autoencoder
+        set_module_requires_grad_(autoencoder, False)
+
         self.codebook_size = autoencoder.codebook_size
         self.num_quantizers = autoencoder.num_quantizers
 

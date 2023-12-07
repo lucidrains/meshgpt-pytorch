@@ -28,6 +28,11 @@ def exists(v):
 def default(v, d):
     return v if exists(v) else d
 
+def cycle(dl):
+    while True:
+        for data in dl:
+            yield data
+
 # optimizer
 
 def separate_weight_decayable_params(params):
@@ -93,12 +98,88 @@ class MeshAutoencoderTrainer(Module):
         self.accelerator = Accelerator(**accelerator_kwargs)
 
         self.model = model
-        self.ema_model = EMA(model, **ema_kwargs)
 
-        self.optimizer = get_optimizer(lr = learning_rate, wd = weight_decay, **optimizer_kwargs)
+        if self.is_main:
+            self.ema_model = EMA(model, **ema_kwargs)
+
+        self.optimizer = get_optimizer(model.parameters(), lr = learning_rate, wd = weight_decay, **optimizer_kwargs)
+
+        self.dataloader = DataLoader(dataset, batch_size = batch_size, shuffle = True, drop_last = True)
+
+        (
+            self.model,
+            self.optimizer,
+            self.dataloader
+        ) = self.accelerator.prepare(
+            self.model,
+            self.optimizer,
+            self.dataloader
+        )
+
+        self.max_grad_norm = max_grad_norm
+        self.num_train_steps = num_train_steps
+        self.register_buffer('step', torch.tensor(0))
+
+    def log(self, **data_kwargs):
+        self.accelerator.log(data_kwargs, step = self.step.item())
+
+    @property
+    def device(self):
+        return self.unwrapped_model.device
+
+    @property
+    def is_main(self):
+        return self.accelerator.is_main_process
+
+    @property
+    def unwrapped_model(self):
+        return self.accelerator.unwrap_model(self.model)
+
+    @property
+    def is_local_main(self):
+        return self.accelerator.is_local_main_process
+
+    def wait(self):
+        return self.accelerator.wait_for_everyone()
+
+    def print(self, msg):
+        return self.accelerator.print(msg)
 
     def forward(self):
-        raise NotImplementedError
+        step = self.step.item()
+        dl_iter = cycle(self.dataloader)
+
+        for _ in range(self.num_train_steps):
+
+            with self.accelerator.autocast():
+                vertices, faces = next(dl_iter)
+
+                loss = self.model(
+                    vertices = vertices,
+                    faces = faces
+                )
+
+                self.accelerator.backward(loss)
+
+            self.print(f'loss: {loss.item():.3f}')
+
+            if exists(self.max_grad_norm):
+                self.accelerator.clip_grad_norm_(self.model.parameters(), self.max_grad_norm)
+
+            self.optimizer.step()
+            self.optimizer.zero_grad()
+
+            self.wait()
+
+            if self.is_main:
+                self.ema_model.update()
+
+            self.wait()
+
+            step += 1
+            self.step.add_(1)
+
+        self.print('training complete')
 
 # mesh transformer trainer
 
@@ -123,7 +204,80 @@ class MeshTransformerTrainer(Module):
 
         self.model = model
 
-        self.optimizer = get_optimizer(lr = learning_rate, wd = weight_decay, **optimizer_kwargs)
+        self.optimizer = get_optimizer(
+            model.parameters(),
+            lr = learning_rate,
+            wd = weight_decay,
+            filter_by_requires_grad = True,
+            **optimizer_kwargs
+        )
+
+        self.dataloader = DataLoader(dataset, batch_size = batch_size, shuffle = True, drop_last = True)
+
+        (
+            self.model,
+            self.optimizer,
+            self.dataloader
+        ) = self.accelerator.prepare(
+            self.model,
+            self.optimizer,
+            self.dataloader
+        )
+
+        self.max_grad_norm = max_grad_norm
+        self.num_train_steps = num_train_steps
+        self.register_buffer('step', torch.tensor(0))
+
+    def log(self, **data_kwargs):
+        self.accelerator.log(data_kwargs, step = self.step.item())
+
+    @property
+    def device(self):
+        return self.unwrapped_model.device
+
+    @property
+    def is_main(self):
+        return self.accelerator.is_main_process
+
+    @property
+    def unwrapped_model(self):
+        return self.accelerator.unwrap_model(self.model)
+
+    @property
+    def is_local_main(self):
+        return self.accelerator.is_local_main_process
+
+    def wait(self):
+        return self.accelerator.wait_for_everyone()
+
+    def print(self, msg):
+        return self.accelerator.print(msg)
 
     def forward(self):
-        raise NotImplementedError
+        step = self.step.item()
+        dl_iter = cycle(self.dataloader)
+
+        for _ in range(self.num_train_steps):
+
+            with self.accelerator.autocast():
+                vertices, faces = next(dl_iter)
+
+                loss = self.model(
+                    vertices = vertices,
+                    faces = faces
+                )
+
+                self.accelerator.backward(loss)
+
+            self.print(f'loss: {loss.item():.3f}')
+
+            if exists(self.max_grad_norm):
+                self.accelerator.clip_grad_norm_(self.model.parameters(), self.max_grad_norm)
+
+            self.optimizer.step()
+            self.optimizer.zero_grad()
+
+            step += 1
+            self.step.add_(1)
+
+        self.print('training complete')
