@@ -1,3 +1,5 @@
+from packaging import version
+from pathlib import Path
 from functools import partial
 from contextlib import nullcontext
 
@@ -16,6 +18,8 @@ from beartype.typing import Optional
 from ema_pytorch import EMA
 
 from meshgpt_pytorch.data import custom_collate
+
+from meshgpt_pytorch.version import __version__
 
 from meshgpt_pytorch.meshgpt_pytorch import (
     MeshAutoencoder,
@@ -153,6 +157,32 @@ class MeshAutoencoderTrainer(Module):
     def print(self, msg):
         return self.accelerator.print(msg)
 
+    def save(self, path, overwrite = True):
+        path = Path(path)
+        assert overwrite or not path.exists()
+
+        pkg = dict(
+            model = self.unwrapped_model.state_dict(),
+            ema_model = self.ema_model.state_dict(),
+            optimizer = self.optimizer.state_dict(),
+            version = __version__
+        )
+
+        torch.save(pkg, str(path))
+
+    def load(self, path):
+        path = Path(path)
+        assert path.exists()
+
+        pkg = torch.load(str(path))
+
+        if version.parse(__version__) != version.parse(pkg['version']):
+            self.print(f'loading saved mesh autoencoder at version {pkg["version"]}, but current package version is {__version__}')
+
+        self.model.load_state_dict(pkg['model'])
+        self.ema_model.load_state_dict(pkg['ema_model'])
+        self.optimizer.load_state_dict(pkg['optimizer'])
+
     def forward(self):
         step = self.step.item()
         dl_iter = cycle(self.dataloader)
@@ -266,6 +296,30 @@ class MeshTransformerTrainer(Module):
 
     def print(self, msg):
         return self.accelerator.print(msg)
+
+    def save(self, path, overwrite = True):
+        path = Path(path)
+        assert overwrite or not path.exists()
+
+        pkg = dict(
+            model = self.unwrapped_model.state_dict(),
+            optimizer = self.optimizer.state_dict(),
+            version = __version__
+        )
+
+        torch.save(pkg, str(path))
+
+    def load(self, path):
+        path = Path(path)
+        assert path.exists()
+
+        pkg = torch.load(str(path))
+
+        if version.parse(__version__) != version.parse(pkg['version']):
+            self.print(f'loading saved mesh transformer at version {pkg["version"]}, but current package version is {__version__}')
+
+        self.model.load_state_dict(pkg['model'])
+        self.optimizer.load_state_dict(pkg['optimizer'])
 
     def forward(self):
         step = self.step.item()

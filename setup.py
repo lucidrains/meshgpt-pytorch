@@ -1,9 +1,11 @@
 from setuptools import setup, find_packages
 
+exec(open('meshgpt-pytorch/version.py').read())
+
 setup(
   name = 'meshgpt-pytorch',
   packages = find_packages(exclude=[]),
-  version = '0.0.38',
+  version = __version__,
   license='MIT',
   description = 'MeshGPT Pytorch',
   author = 'Phil Wang',
