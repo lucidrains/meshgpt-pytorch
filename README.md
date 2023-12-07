@@ -43,17 +43,14 @@ vertices = torch.randn((2, 121, 3))            # (batch, num vertices, coor (3))
 faces = torch.randint(0, 121, (2, 64, 3))      # (batch, num faces, vertices (3))
 face_edges = torch.randint(0, 64, (2, 2, 96))  # (batch, source target, num edges)
 
-face_len = torch.randint(1, 64, (2,))          # (batch,)
-face_edges_len = torch.randint(1, 96, (2,))    # (batch,)
+# make sure faces and face_edges are padded with `-1` for variable lengthed meshes. otherwise, you will need to explicitly pass in `face_len` as well as `face_edges_len`
 
 # forward in the faces
 
 loss = autoencoder(
     vertices = vertices,
     faces = faces,
-    face_edges = face_edges,
-    face_len = face_len,
-    face_edges_len = face_edges_len
+    face_edges = face_edges
 )
 
 loss.backward()
@@ -70,9 +67,7 @@ transformer = MeshTransformer(
 loss = transformer(
     vertices = vertices,
     faces = faces,
-    face_edges = face_edges,
-    face_len = face_len,
-    face_edges_len = face_edges_len
+    face_edges = face_edges
 )
 
 loss.backward()
