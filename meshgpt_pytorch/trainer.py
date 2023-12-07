@@ -132,6 +132,13 @@ class MeshAutoencoderTrainer(Module):
         self.num_train_steps = num_train_steps
         self.register_buffer('step', torch.tensor(0))
 
+    @property
+    def ema_tokenizer(self):
+        return self.ema_model.ema_model
+
+    def tokenize(self, *args, **kwargs):
+        return self.ema_tokenizer.tokenize(*args, **kwargs)
+
     def log(self, **data_kwargs):
         self.accelerator.log(data_kwargs, step = self.step.item())
 
