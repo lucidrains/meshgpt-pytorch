@@ -1,6 +1,6 @@
 from setuptools import setup, find_packages
 
-exec(open('meshgpt-pytorch/version.py').read())
+exec(open('meshgpt_pytorch/version.py').read())
 
 setup(
   name = 'meshgpt-pytorch',
