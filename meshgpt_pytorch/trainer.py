@@ -34,6 +34,9 @@ def exists(v):
 def default(v, d):
     return v if exists(v) else d
 
+def divisible_by(num, den):
+    return (num % den) == 0
+
 def cycle(dl):
     while True:
         for data in dl:
@@ -98,7 +101,9 @@ class MeshAutoencoderTrainer(Module):
         max_grad_norm: Optional[float] = None,
         ema_kwargs: dict = dict(),
         accelerator_kwargs: dict = dict(),
-        optimizer_kwargs: dict = dict()
+        optimizer_kwargs: dict = dict(),
+        checkpoint_every = 1000,
+        checkpoint_folder = './checkpoints'
     ):
         super().__init__()
         self.accelerator = Accelerator(**accelerator_kwargs)
@@ -128,9 +133,14 @@ class MeshAutoencoderTrainer(Module):
             self.dataloader
         )
 
+        self.grad_accum_every = grad_accum_every
         self.max_grad_norm = max_grad_norm
         self.num_train_steps = num_train_steps
         self.register_buffer('step', torch.tensor(0))
+
+        self.checkpoint_every = checkpoint_every
+        self.checkpoint_folder = Path(checkpoint_folder)
+        self.checkpoint_folder.mkdir(exist_ok = True, parents = True)
 
     @property
     def ema_tokenizer(self):
@@ -199,17 +209,18 @@ class MeshAutoencoderTrainer(Module):
         while step < self.num_train_steps:
 
             with self.accelerator.autocast():
-                data = next(dl_iter)
+                for _ in range(self.grad_accum_every):
+                    data = next(dl_iter)
 
-                if isinstance(data, tuple):
-                    vertices, faces = data
-                    forward_kwargs = dict(vertices = vertices, faces = faces)
-                elif isinstance(data, dict):
-                    forward_kwargs = data
+                    if isinstance(data, tuple):
+                        vertices, faces = data
+                        forward_kwargs = dict(vertices = vertices, faces = faces)
+                    elif isinstance(data, dict):
+                        forward_kwargs = data
 
-                loss = self.model(**forward_kwargs)
+                    loss = self.model(**forward_kwargs)
 
-                self.accelerator.backward(loss)
+                    self.accelerator.backward(loss / self.grad_accum_every)
 
             self.print(f'loss: {loss.item():.3f}')
 
@@ -219,6 +230,9 @@ class MeshAutoencoderTrainer(Module):
             self.optimizer.step()
             self.optimizer.zero_grad()
 
+            step += 1
+            self.step.add_(1)
+
             self.wait()
 
             if self.is_main:
@@ -226,8 +240,9 @@ class MeshAutoencoderTrainer(Module):
 
             self.wait()
 
-            step += 1
-            self.step.add_(1)
+            if self.is_main:
+                checkpoint_num = step // self.checkpoint_every
+                self.save(self.checkpoint_folder / f'mesh-autoencoder.ckpt.{checkpoint_num}.pt')
 
         self.print('training complete')
 
@@ -247,7 +262,9 @@ class MeshTransformerTrainer(Module):
         max_grad_norm: Optional[float] = 0.5,
         ema_kwargs: dict = dict(),
         accelerator_kwargs: dict = dict(),
-        optimizer_kwargs: dict = dict()
+        optimizer_kwargs: dict = dict(),
+        checkpoint_every = 1000,
+        checkpoint_folder = './checkpoints'
     ):
         super().__init__()
         self.accelerator = Accelerator(**accelerator_kwargs)
@@ -280,9 +297,14 @@ class MeshTransformerTrainer(Module):
             self.dataloader
         )
 
+        self.grad_accum_every = grad_accum_every
         self.max_grad_norm = max_grad_norm
         self.num_train_steps = num_train_steps
         self.register_buffer('step', torch.tensor(0))
+
+        self.checkpoint_every = checkpoint_every
+        self.checkpoint_folder = Path(checkpoint_folder)
+        self.checkpoint_folder.mkdir(exist_ok = True, parents = True)
 
     def log(self, **data_kwargs):
         self.accelerator.log(data_kwargs, step = self.step.item())
@@ -342,17 +364,18 @@ class MeshTransformerTrainer(Module):
         while step < self.num_train_steps:
 
             with self.accelerator.autocast():
-                data = next(dl_iter)
+                for _ in range(self.grad_accum_every):
+                    data = next(dl_iter)
 
-                if isinstance(data, tuple):
-                    vertices, faces = data
-                    forward_kwargs = dict(vertices = vertices, faces = faces)
-                elif isinstance(data, dict):
-                    forward_kwargs = data
+                    if isinstance(data, tuple):
+                        vertices, faces = data
+                        forward_kwargs = dict(vertices = vertices, faces = faces)
+                    elif isinstance(data, dict):
+                        forward_kwargs = data
 
-                loss = self.model(**forward_kwargs)
+                    loss = self.model(**forward_kwargs)
 
-                self.accelerator.backward(loss)
+                    self.accelerator.backward(loss / self.grad_accum_every)
 
             self.print(f'loss: {loss.item():.3f}')
 
@@ -364,5 +387,13 @@ class MeshTransformerTrainer(Module):
 
             step += 1
             self.step.add_(1)
+
+            self.wait()
+
+            if self.is_main and divisible_by(step, self.checkpoint_every):
+                checkpoint_num = step // self.checkpoint_every
+                self.save(self.checkpoint_folder / f'mesh-transformer.ckpt.{checkpoint_num}.pt')
+
+            self.wait()
 
         self.print('training complete')
