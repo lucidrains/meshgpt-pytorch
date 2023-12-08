@@ -98,13 +98,14 @@ faces_coordinates = transformer.generate()
         - [x] on forwards
         - [x] on generation, do all eos logic + substitute everything after eos with pad id
     - [x] generation + cache kv
-    - [ ] speculative decoding option
-    - [ ] hierarchical transformers (using the RQ transformer)
+
+- [x] trainer wrapper with hf accelerate
+    - [x] autoencoder - take care of ema
+    - [x] transformer
 
 - [ ] text conditioning using own CFG library
-- [ ] trainer wrapper with hf accelerate
-    - [ ] autoencoder - take care of ema
-    - [ ] transformer
+- [ ] speculative decoding option
+- [ ] hierarchical transformers (using the RQ transformer)
 
 ## Citations
 
