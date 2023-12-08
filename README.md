@@ -88,6 +88,7 @@ faces_coordinates = transformer.generate()
     - [x] add option to use residual LFQ, latest quantization development that scales code utilization
     - [x] xcit linear attention in encoder and decoder
     - [x] figure out how to auto-derive `face_edges` directly from faces and vertices
+    - [ ] embed any derived values (area, angles, etc) from the vertices before sage convs. also aim to do a generalization of embedding any number of derived values
 
 - [ ] transformer
     - [x] properly mask out eos logit during generation
