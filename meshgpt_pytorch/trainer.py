@@ -250,6 +250,8 @@ class MeshAutoencoderTrainer(Module):
                 checkpoint_num = step // self.checkpoint_every
                 self.save(self.checkpoint_folder / f'mesh-autoencoder.ckpt.{checkpoint_num}.pt')
 
+            self.wait()
+
         self.print('training complete')
 
 # mesh transformer trainer
