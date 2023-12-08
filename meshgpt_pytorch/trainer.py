@@ -1,6 +1,6 @@
-from packaging import version
 from pathlib import Path
 from functools import partial
+from packaging import version
 from contextlib import nullcontext
 
 import torch
@@ -13,7 +13,7 @@ from torch.utils.data import Dataset, DataLoader
 from accelerate import Accelerator
 
 from beartype import beartype
-from beartype.typing import Optional
+from beartype.typing import Optional, Tuple
 
 from ema_pytorch import EMA
 
@@ -103,7 +103,8 @@ class MeshAutoencoderTrainer(Module):
         accelerator_kwargs: dict = dict(),
         optimizer_kwargs: dict = dict(),
         checkpoint_every = 1000,
-        checkpoint_folder = './checkpoints'
+        checkpoint_folder = './checkpoints',
+        data_kwargs: Tuple[str, ...] = ['vertices', 'faces', 'face_edges', 'face_len', 'face_edges_len']
     ):
         super().__init__()
         self.accelerator = Accelerator(**accelerator_kwargs)
@@ -122,6 +123,8 @@ class MeshAutoencoderTrainer(Module):
             drop_last = True,
             collate_fn = partial(custom_collate, pad_id = model.pad_id)
         )
+
+        self.data_kwargs = data_kwargs
 
         (
             self.model,
@@ -213,8 +216,8 @@ class MeshAutoencoderTrainer(Module):
                     data = next(dl_iter)
 
                     if isinstance(data, tuple):
-                        vertices, faces = data
-                        forward_kwargs = dict(vertices = vertices, faces = faces)
+                        forward_kwargs = dict(zip(self.data_kwargs, data))
+
                     elif isinstance(data, dict):
                         forward_kwargs = data
 
@@ -264,7 +267,8 @@ class MeshTransformerTrainer(Module):
         accelerator_kwargs: dict = dict(),
         optimizer_kwargs: dict = dict(),
         checkpoint_every = 1000,
-        checkpoint_folder = './checkpoints'
+        checkpoint_folder = './checkpoints',
+        data_kwargs: Tuple[str, ...] = ['vertices', 'faces', 'face_edges', 'face_len', 'face_edges_len']
     ):
         super().__init__()
         self.accelerator = Accelerator(**accelerator_kwargs)
@@ -286,6 +290,8 @@ class MeshTransformerTrainer(Module):
             drop_last = True,
             collate_fn = partial(custom_collate, pad_id = model.pad_id)
         )
+
+        self.data_kwargs = data_kwargs
 
         (
             self.model,
@@ -368,8 +374,8 @@ class MeshTransformerTrainer(Module):
                     data = next(dl_iter)
 
                     if isinstance(data, tuple):
-                        vertices, faces = data
-                        forward_kwargs = dict(vertices = vertices, faces = faces)
+                        forward_kwargs = dict(zip(self.data_kwargs, data))
+
                     elif isinstance(data, dict):
                         forward_kwargs = data
 
