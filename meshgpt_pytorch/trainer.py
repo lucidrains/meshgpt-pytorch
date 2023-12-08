@@ -1,7 +1,7 @@
 from pathlib import Path
 from functools import partial
 from packaging import version
-from contextlib import nullcontext
+from contextlib import nullcontext, contextmanager
 
 import torch
 from torch import nn, Tensor
@@ -11,6 +11,7 @@ from torch.optim import AdamW, Adam
 from torch.utils.data import Dataset, DataLoader
 
 from accelerate import Accelerator
+from accelerate.utils import DistributedDataParallelKwargs
 
 from beartype import beartype
 from beartype.typing import Optional, Tuple
@@ -24,6 +25,12 @@ from meshgpt_pytorch.version import __version__
 from meshgpt_pytorch.meshgpt_pytorch import (
     MeshAutoencoder,
     MeshTransformer
+)
+
+# constants
+
+DEFAULT_DDP_KWARGS = DistributedDataParallelKwargs(
+    find_unused_parameters = True
 )
 
 # helper functions
@@ -104,9 +111,23 @@ class MeshAutoencoderTrainer(Module):
         optimizer_kwargs: dict = dict(),
         checkpoint_every = 1000,
         checkpoint_folder = './checkpoints',
-        data_kwargs: Tuple[str, ...] = ['vertices', 'faces', 'face_edges', 'face_len', 'face_edges_len']
+        data_kwargs: Tuple[str, ...] = ['vertices', 'faces', 'face_edges', 'face_len', 'face_edges_len'],
+        use_wandb_tracking = False
     ):
         super().__init__()
+
+        # experiment tracker
+
+        self.use_wandb_tracking = use_wandb_tracking
+
+        if use_wandb_tracking:
+            accelerator_kwargs['log_with'] = 'wandb'
+
+        if 'kwargs_handlers' not in accelerator_kwargs:
+            accelerator_kwargs['kwargs_handlers'] = [DEFAULT_DDP_KWARGS]
+
+        # accelerator
+
         self.accelerator = Accelerator(**accelerator_kwargs)
 
         self.model = model
@@ -151,6 +172,24 @@ class MeshAutoencoderTrainer(Module):
 
     def tokenize(self, *args, **kwargs):
         return self.ema_tokenizer.tokenize(*args, **kwargs)
+
+    @contextmanager
+    @beartype
+    def trackers(
+        self,
+        project_name: str,
+        run_name: Optional[str] = None,
+        hps: Optional[dict] = None
+    ):
+        assert self.use_wandb_tracking
+
+        self.accelerator.init_trackers(project_name, config = hps)
+
+        if exists(run_name):
+            self.accelerator.trackers[0].run.name = run_name
+
+        yield
+        self.accelerator.end_training()
 
     def log(self, **data_kwargs):
         self.accelerator.log(data_kwargs, step = self.step.item())
@@ -230,6 +269,8 @@ class MeshAutoencoderTrainer(Module):
 
             self.print(f'loss: {loss.item():.3f}')
 
+            self.log(loss = loss.item())
+
             if exists(self.max_grad_norm):
                 self.accelerator.clip_grad_norm_(self.model.parameters(), self.max_grad_norm)
 
@@ -273,9 +314,21 @@ class MeshTransformerTrainer(Module):
         optimizer_kwargs: dict = dict(),
         checkpoint_every = 1000,
         checkpoint_folder = './checkpoints',
-        data_kwargs: Tuple[str, ...] = ['vertices', 'faces', 'face_edges', 'face_len', 'face_edges_len']
+        data_kwargs: Tuple[str, ...] = ['vertices', 'faces', 'face_edges', 'face_len', 'face_edges_len'],
+        use_wandb_tracking = False
     ):
         super().__init__()
+
+        # experiment tracker
+
+        self.use_wandb_tracking = use_wandb_tracking
+
+        if use_wandb_tracking:
+            accelerator_kwargs['log_with'] = 'wandb'
+
+        if 'kwargs_handlers' not in accelerator_kwargs:
+            accelerator_kwargs['kwargs_handlers'] = [DEFAULT_DDP_KWARGS]
+
         self.accelerator = Accelerator(**accelerator_kwargs)
 
         self.model = model
@@ -316,6 +369,24 @@ class MeshTransformerTrainer(Module):
         self.checkpoint_every = checkpoint_every
         self.checkpoint_folder = Path(checkpoint_folder)
         self.checkpoint_folder.mkdir(exist_ok = True, parents = True)
+
+    @contextmanager
+    @beartype
+    def trackers(
+        self,
+        project_name: str,
+        run_name: Optional[str] = None,
+        hps: Optional[dict] = None
+    ):
+        assert self.use_wandb_tracking
+
+        self.accelerator.init_trackers(project_name, config = hps)
+
+        if exists(run_name):
+            self.accelerator.trackers[0].run.name = run_name
+
+        yield
+        self.accelerator.end_training()
 
     def log(self, **data_kwargs):
         self.accelerator.log(data_kwargs, step = self.step.item())
@@ -392,6 +463,8 @@ class MeshTransformerTrainer(Module):
                     self.accelerator.backward(loss / self.grad_accum_every)
 
             self.print(f'loss: {loss.item():.3f}')
+
+            self.log(loss = loss.item())
 
             if exists(self.max_grad_norm):
                 self.accelerator.clip_grad_norm_(self.model.parameters(), self.max_grad_norm)
