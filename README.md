@@ -104,7 +104,10 @@ faces_coordinates = transformer.generate()
     - [x] autoencoder - take care of ema
     - [x] transformer
 
-- [ ] text conditioning using own CFG library
+- [x] text conditioning using own CFG library
+    - [x] complete preliminary text conditioning
+    - [ ] may need to redo without CFG library, given kv caching is difficult in the presence of cond scaling
+
 - [ ] speculative decoding option
 - [ ] hierarchical transformers (using the RQ transformer)
 

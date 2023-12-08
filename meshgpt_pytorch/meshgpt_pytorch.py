@@ -9,7 +9,7 @@ from torch.cuda.amp import autocast
 from torchtyping import TensorType
 
 from beartype import beartype
-from beartype.typing import Tuple, Callable, Optional
+from beartype.typing import Tuple, Callable, Optional, List
 
 from einops import rearrange, repeat, reduce, pack, unpack
 from einops.layers.torch import Rearrange
@@ -30,6 +30,11 @@ from vector_quantize_pytorch import (
 )
 
 from meshgpt_pytorch.data import derive_face_edges_from_faces
+
+from classifier_free_guidance_pytorch import (
+    classifier_free_guidance,
+    TextEmbeddingReturner
+)
 
 from torch_geometric.nn.conv import SAGEConv
 
@@ -668,7 +673,10 @@ class MeshTransformer(Module):
             ff_glu = True,
             num_mem_kv = 4
         ),
-        pad_id = -1
+        pad_id = -1,
+        condition_on_text = False,
+        text_condition_model_types = ('t5',),
+        text_condition_cond_drop_prob = 0.25
     ):
         super().__init__()
 
@@ -694,6 +702,20 @@ class MeshTransformer(Module):
 
         self.max_seq_len = max_seq_len
 
+        # text condition
+
+        self.condition_on_text = condition_on_text
+        self.conditioner = None
+
+        cross_attn_dim_context = None
+
+        if condition_on_text:
+            self.conditioner = TextEmbeddingReturner(
+                model_types = text_condition_model_types,
+                cond_drop_prob = text_condition_cond_drop_prob
+            )
+            cross_attn_dim_context = self.conditioner.dim_latent
+
         # main autoregressive attention network
 
         self.decoder = Decoder(
@@ -702,6 +724,8 @@ class MeshTransformer(Module):
             dim_head = attn_dim_head,
             heads = attn_heads,
             flash_attn = flash_attn,
+            cross_attend = condition_on_text,
+            cross_attn_dim_context = cross_attn_dim_context,
             **attn_kwargs
         )
 
@@ -717,6 +741,10 @@ class MeshTransformer(Module):
     def device(self):
         return next(self.parameters()).device
 
+    @beartype
+    def embed_texts(self, texts: List[str]):
+        return self.conditioner.embed_texts(texts)
+
     @eval_decorator
     @torch.no_grad()
     @beartype
@@ -727,7 +755,10 @@ class MeshTransformer(Module):
         filter_logits_fn: Callable = top_k,
         filter_kwargs: dict = dict(),
         temperature = 1.,
-        return_codes = False
+        return_codes = False,
+        texts: Optional[List[str]] = None,
+        text_embeds: Optional[Tensor] = None,
+        cond_scale = 1.
     ):
         if exists(prompt):
             assert not exists(batch_size)
@@ -737,11 +768,22 @@ class MeshTransformer(Module):
 
             batch_size = prompt.shape[0]
 
+        if self.condition_on_text:
+            assert exists(texts) ^ exists(text_embeds), '`text` or `text_embeds` must be passed in if `condition_on_text` is set to True'
+            if exists(texts):
+                text_embeds = self.embed_texts(texts)
+
+            batch_size = default(batch_size, text_embeds.shape[0])
+
         batch_size = default(batch_size, 1)
 
         codes = default(prompt, torch.empty((batch_size, 0), dtype = torch.long, device = self.device))
 
         curr_length = codes.shape[-1]
+
+        # for now, kv cache disabled when conditioning on text
+
+        can_cache = not self.condition_on_text or cond_scale == 1.
 
         cache = None
 
@@ -750,13 +792,18 @@ class MeshTransformer(Module):
 
             can_eos = i != 0 and divisible_by(i, self.num_quantizers * 3)  # only allow for eos to be decoded at the end of each face, defined as 3 vertices with D residual VQ codes
 
-            logits, cache = self.forward_on_codes(
+            logits, new_cache = self.forward_on_codes(
                 codes,
                 cache = cache,
+                text_embeds = text_embeds,
                 return_loss = False,
                 return_cache = True,
-                append_eos = False
+                append_eos = False,
+                cond_scale = cond_scale
             )
+
+            if can_cache:
+                cache = new_cache
 
             logits = logits[:, -1]
 
@@ -797,7 +844,8 @@ class MeshTransformer(Module):
         face_edges:     Optional[TensorType['b', 'e', 2, int]] = None,
         face_len:       Optional[TensorType['b', int]] = None,
         face_edges_len: Optional[TensorType['b', int]] = None,
-        cache:          Optional[LayerIntermediates] = None
+        cache:          Optional[LayerIntermediates] = None,
+        **kwargs
     ):
         codes = self.autoencoder.tokenize(
             vertices = vertices,
@@ -807,16 +855,42 @@ class MeshTransformer(Module):
             face_edges_len = face_edges_len
         )
 
-        return self.forward_on_codes(codes, cache = cache)
+        return self.forward_on_codes(codes, cache = cache, **kwargs)
 
+    @classifier_free_guidance
     def forward_on_codes(
         self,
         codes = None,
         return_loss = True,
         return_cache = False,
         append_eos = False,
-        cache: Optional[LayerIntermediates] = None
+        cache: Optional[LayerIntermediates] = None,
+        texts: Optional[List[str]] = None,
+        text_embeds: Optional[Tensor] = None,
+        cond_drop_prob = 0.
     ):
+        # handle text conditions
+
+        attn_context_kwargs = dict()
+
+        if self.condition_on_text:
+            assert exists(texts) ^ exists(text_embeds), '`text` or `text_embeds` must be passed in if `condition_on_text` is set to True'
+
+            if exists(texts):
+                text_embeds = self.conditioner.embed_texts(texts)
+
+            _, maybe_dropped_text_embeds = self.conditioner(
+                text_embeds = text_embeds,
+                cond_drop_prob = cond_drop_prob
+            )
+
+            attn_context_kwargs = dict(
+                context = maybe_dropped_text_embeds.embed,
+                context_mask = maybe_dropped_text_embeds.mask
+            )
+
+        # take care of codes that may be flattened
+
         if codes.ndim > 2:
             codes = rearrange(codes, 'b ... -> b (...)')
 
@@ -878,6 +952,7 @@ class MeshTransformer(Module):
             codes,
             cache = cache,
             return_hiddens = True,
+            **attn_context_kwargs
         )
 
         # logits
