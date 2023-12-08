@@ -211,16 +211,19 @@ class MeshAutoencoderTrainer(Module):
 
         while step < self.num_train_steps:
 
-            with self.accelerator.autocast():
-                for _ in range(self.grad_accum_every):
-                    data = next(dl_iter)
+            for i in range(self.grad_accum_every):
+                is_last = i == (self.grad_accum_every - 1)
+                maybe_no_sync = partial(self.accelerator.no_sync, self.model) if not is_last else nullcontext
 
-                    if isinstance(data, tuple):
-                        forward_kwargs = dict(zip(self.data_kwargs, data))
+                data = next(dl_iter)
 
-                    elif isinstance(data, dict):
-                        forward_kwargs = data
+                if isinstance(data, tuple):
+                    forward_kwargs = dict(zip(self.data_kwargs, data))
 
+                elif isinstance(data, dict):
+                    forward_kwargs = data
+
+                with self.accelerator.autocast(), maybe_no_sync():
                     loss = self.model(**forward_kwargs)
 
                     self.accelerator.backward(loss / self.grad_accum_every)
@@ -369,16 +372,19 @@ class MeshTransformerTrainer(Module):
 
         while step < self.num_train_steps:
 
-            with self.accelerator.autocast():
-                for _ in range(self.grad_accum_every):
-                    data = next(dl_iter)
+            for i in range(self.grad_accum_every):
+                is_last = i == (self.grad_accum_every - 1)
+                maybe_no_sync = partial(self.accelerator.no_sync, self.model) if not is_last else nullcontext
 
-                    if isinstance(data, tuple):
-                        forward_kwargs = dict(zip(self.data_kwargs, data))
+                data = next(dl_iter)
 
-                    elif isinstance(data, dict):
-                        forward_kwargs = data
+                if isinstance(data, tuple):
+                    forward_kwargs = dict(zip(self.data_kwargs, data))
 
+                elif isinstance(data, dict):
+                    forward_kwargs = data
+
+                with self.accelerator.autocast(), maybe_no_sync():
                     loss = self.model(**forward_kwargs)
 
                     self.accelerator.backward(loss / self.grad_accum_every)
