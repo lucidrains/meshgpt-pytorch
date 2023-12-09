@@ -84,7 +84,7 @@ def derive_angle(x, y):
 def get_derived_face_features(
     face_coords: TensorType['b', 'nf', 3, 3, float]  # 3 vertices with 3 coordinates
 ):
-    shifted_face_coords = torch.roll(face_coords, 1, dims = (-2),)
+    shifted_face_coords = torch.cat((face_coords[:, :, -1:], face_coords[:, :, :-1]), dim = 2)
 
     angles  = derive_angle(face_coords, shifted_face_coords)
 
@@ -492,7 +492,7 @@ class MeshAutoencoder(Module):
         if not return_face_coordinates:
             return face_embed
 
-        return face_embed, face_coords
+        return face_embed, discrete_face_coords
 
     @beartype
     def quantize(
