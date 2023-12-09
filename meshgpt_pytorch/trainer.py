@@ -16,7 +16,7 @@ from accelerate import Accelerator
 from accelerate.utils import DistributedDataParallelKwargs
 
 from beartype import beartype
-from beartype.typing import Optional, Tuple
+from beartype.typing import Optional, Tuple, Type
 
 from ema_pytorch import EMA
 
@@ -111,7 +111,7 @@ class MeshAutoencoderTrainer(Module):
         weight_decay: float = 0.,
         max_grad_norm: Optional[float] = None,
         ema_kwargs: dict = dict(),
-        scheduler: Optional[type[LRScheduler]] = None,
+        scheduler: Optional[Type[LRScheduler]] = None,
         scheduler_kwargs: dict = dict(),
         accelerator_kwargs: dict = dict(),
         optimizer_kwargs: dict = dict(),
@@ -334,7 +334,7 @@ class MeshTransformerTrainer(Module):
         learning_rate: float = 2e-4,
         weight_decay: float = 0.,
         max_grad_norm: Optional[float] = 0.5,
-        scheduler: Optional[type[LRScheduler]] = None,
+        scheduler: Optional[Type[LRScheduler]] = None,
         scheduler_kwargs: dict = dict(),
         ema_kwargs: dict = dict(),
         accelerator_kwargs: dict = dict(),
