@@ -106,7 +106,7 @@ faces_coordinates = transformer.generate()
 
 - [x] text conditioning using own CFG library
     - [x] complete preliminary text conditioning
-    - [ ] may need to redo without CFG library, given kv caching is difficult in the presence of cond scaling
+    - [ ] make sure CFG library can support passing in arguments to the two separate calls when cond scaling (as well as aggregating their outputs)
 
 - [ ] speculative decoding option
 - [ ] hierarchical transformers (using the RQ transformer)
