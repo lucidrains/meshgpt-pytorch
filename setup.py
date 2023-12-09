@@ -25,6 +25,7 @@ setup(
     'classifier-free-guidance-pytorch>=0.4.2',
     'einops>=0.7.0',
     'ema-pytorch',
+    'pytorch-warmup',
     'torch>=2.0',
     'torch_geometric',
     'torchtyping',
