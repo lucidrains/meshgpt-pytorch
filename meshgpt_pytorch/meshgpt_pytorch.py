@@ -1,4 +1,5 @@
-from math import ceil
+from functools import partial
+from math import ceil, pi
 
 import torch
 from torch import nn, Tensor, einsum
@@ -9,7 +10,7 @@ from torch.cuda.amp import autocast
 from torchtyping import TensorType
 
 from beartype import beartype
-from beartype.typing import Tuple, Callable, Optional, List
+from beartype.typing import Tuple, Callable, Optional, List, Dict
 
 from einops import rearrange, repeat, reduce, pack, unpack
 from einops.layers.torch import Rearrange
@@ -64,10 +65,43 @@ def set_module_requires_grad_(
     for param in module.parameters():
         param.requires_grad = requires_grad
 
+# additional encoder features
+# 1. angle (3), 2. area (1), 3. normals (3)
+
+def derive_angle(x, y):
+    """
+    https://github.com/pytorch/pytorch/issues/59194
+    """
+    x_norm = x.norm(keepdim = True, dim = -1)
+    y_norm = y.norm(keepdim = True, dim = -1)
+
+    return 2 * torch.atan2(
+        (x * y_norm - x_norm * y).norm(dim = -1),
+        (x * y_norm + x_norm * y).norm(dim = -1)
+    )
+
+def get_derived_face_features(
+    face_coords: TensorType['b', 'nf', 3, 3, float]  # 3 vertices with 3 coordinates
+):
+    shifted_face_coords = torch.roll(face_coords, 1, dims = (-2),)
+
+    angles  = derive_angle(face_coords, shifted_face_coords)
+
+    edge1, edge2, _ = (face_coords - shifted_face_coords).unbind(dim = 2)
+
+    normals = torch.cross(edge1, edge2, dim = -1)
+    area = normals.norm(dim = -1, keepdim = True)
+
+    return dict(
+        angles = angles,
+        area = area,
+        normals = normals
+    )   
+
 # tensor helper functions
 
 @beartype
-def discretize_coors(
+def discretize(
     t: Tensor,
     *,
     continuous_range: Tuple[float, float],
@@ -83,7 +117,7 @@ def discretize_coors(
     return t.round().long().clamp(min = 0, max = num_discrete - 1)
 
 @beartype
-def undiscretize_coors(
+def undiscretize(
     t: Tensor,
     *,
     continuous_range = Tuple[float, float],
@@ -253,6 +287,12 @@ class MeshAutoencoder(Module):
         num_discrete_coors = 128,
         coor_continuous_range: Tuple[float, float] = (-1., 1.),
         dim_coor_embed = 64,
+        num_discrete_area = 128,
+        dim_area_embed = 64,
+        num_discrete_normals = 128,
+        dim_normal_embed = 64,
+        num_discrete_angles = 128,
+        dim_angle_embed = 64,
         encoder_depth = 2,
         decoder_depth = 2,
         dim_codebook = 192,
@@ -272,8 +312,30 @@ class MeshAutoencoder(Module):
         self.num_discrete_coors = num_discrete_coors
         self.coor_continuous_range = coor_continuous_range
 
+        # main face coordinate embedding
+
+        self.discretize_face_coords = partial(discretize, num_discrete = num_discrete_coors, continuous_range = coor_continuous_range)
         self.coor_embed = nn.Embedding(num_discrete_coors, dim_coor_embed)
-        self.project_in = nn.Linear(dim_coor_embed * 9, dim)
+
+        # derived feature embedding
+
+        self.discretize_angles = partial(discretize, num_discrete = num_discrete_angles, continuous_range = (0., pi))
+        self.angle_embed = nn.Embedding(num_discrete_angles, dim_angle_embed)
+
+        lo, hi = coor_continuous_range
+        self.discretize_area = partial(discretize, num_discrete = num_discrete_area, continuous_range = (0., (hi - lo) ** 2))
+        self.area_embed = nn.Embedding(num_discrete_area, dim_area_embed)
+
+        self.discretize_normals = partial(discretize, num_discrete = num_discrete_normals, continuous_range = coor_continuous_range)
+        self.normal_embed = nn.Embedding(num_discrete_normals, dim_normal_embed)
+
+        # initial dimension
+
+        init_dim = dim_coor_embed * 9 + dim_angle_embed * 3 + dim_normal_embed * 3 + dim_area_embed
+
+        # project into model dimension
+
+        self.project_in = nn.Linear(init_dim, dim)
 
         self.encoders = ModuleList([])
 
@@ -339,7 +401,7 @@ class MeshAutoencoder(Module):
     def encode(
         self,
         *,
-        vertices:         TensorType['b', 'nv', 3, int],
+        vertices:         TensorType['b', 'nv', 3, float],
         faces:            TensorType['b', 'nf', 3, int],
         face_edges:       TensorType['b', 'e', 2, int],
         face_mask:        TensorType['b', 'nf', bool],
@@ -363,12 +425,34 @@ class MeshAutoencoder(Module):
         faces_vertices = repeat(face_without_pad, 'b nf nv -> b nf nv c', c = num_coors)
         vertices = repeat(vertices, 'b nv c -> b nf nv c', nf = num_faces)
 
+        # continuous face coords
+
         face_coords = vertices.gather(-2, faces_vertices)
-        face_coords = rearrange(face_coords, 'b nf nv c -> b nf (nv c)') # 9 coordinates per face
 
-        face_embed = self.coor_embed(face_coords)
-        face_embed = rearrange(face_embed, 'b nf c d -> b nf (c d)')
+        # compute derived features and embed
 
+        derived_features = get_derived_face_features(face_coords)
+
+        discrete_angles = self.discretize_angles(derived_features['angles'])
+        angle_embed = self.angle_embed(discrete_angles)
+
+        discrete_area = self.discretize_area(derived_features['area'])
+        area_embed = self.area_embed(discrete_area)
+
+        discrete_normal = self.discretize_normals(derived_features['normals'])
+        normal_embed = self.normal_embed(discrete_normal)
+
+        # discretize vertices for face coordinate embedding
+
+        discrete_face_coords = self.discretize_face_coords(face_coords)
+        discrete_face_coords = rearrange(discrete_face_coords, 'b nf nv c -> b nf (nv c)') # 9 coordinates per face
+
+        face_coor_embed = self.coor_embed(discrete_face_coords)
+        face_coor_embed = rearrange(face_coor_embed, 'b nf c d -> b nf (c d)')
+
+        # combine all features and project into model dimension
+
+        face_embed, _ = pack([face_coor_embed, angle_embed, area_embed, normal_embed], 'b nf *')
         face_embed = self.project_in(face_embed)
 
         face_embed = rearrange(face_embed, 'b nf d -> (b nf) d')
@@ -545,7 +629,7 @@ class MeshAutoencoder(Module):
 
         # back to continuous space
 
-        continuous_coors = undiscretize_coors(
+        continuous_coors = undiscretize(
             pred_face_coords,
             num_discrete = self.num_discrete_coors,
             continuous_range = self.coor_continuous_range
@@ -590,14 +674,8 @@ class MeshAutoencoder(Module):
         else:
             face_edges_mask = reduce(face_edges != self.pad_id, 'b e ij -> b e', 'all')
 
-        discretized_vertices = discretize_coors(
-            vertices,
-            num_discrete = self.num_discrete_coors,
-            continuous_range = self.coor_continuous_range,
-        )
-
         encoded, face_coordinates = self.encode(
-            vertices = discretized_vertices,
+            vertices = vertices,
             faces = faces,
             face_edges = face_edges,
             face_edges_mask = face_edges_mask,
