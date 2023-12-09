@@ -358,7 +358,9 @@ class MeshAutoencoder(Module):
         batch, num_vertices, num_coors, device = *vertices.shape, vertices.device
         _, num_faces, _ = faces.shape
 
-        faces_vertices = repeat(faces, 'b nf nv -> b nf nv c', c = num_coors)
+        face_without_pad = faces.masked_fill(~rearrange(face_mask, 'b nf -> b nf 1'), 0)
+
+        faces_vertices = repeat(face_without_pad, 'b nf nv -> b nf nv c', c = num_coors)
         vertices = repeat(vertices, 'b nv c -> b nf nv c', nf = num_faces)
 
         face_coords = vertices.gather(-2, faces_vertices)
@@ -427,8 +429,6 @@ class MeshAutoencoder(Module):
         face_embed = rearrange(face_embed, 'b nf (nv d) -> b nf nv d', nv = 3)
 
         vertex_dim = face_embed.shape[-1]
-        faces_with_dim = repeat(faces, 'b nf nv -> b nf nv d', d = vertex_dim)
-
         vertices = torch.zeros((batch, num_vertices, vertex_dim), device = device)
 
         # create pad vertex, due to variable lengthed faces
@@ -440,7 +440,8 @@ class MeshAutoencoder(Module):
 
         # prepare for scatter mean
 
-        faces_with_dim = rearrange(faces_with_dim, 'b ... d -> b (...) d')
+        faces_with_dim = repeat(faces, 'b nf nv -> b (nf nv) d', d = vertex_dim)
+
         face_embed = rearrange(face_embed, 'b ... d -> b (...) d')
 
         # scatter mean
