@@ -80,6 +80,7 @@ def derive_angle(x, y):
         (x * y_norm + x_norm * y).norm(dim = -1)
     )
 
+@torch.no_grad()
 def get_derived_face_features(
     face_coords: TensorType['b', 'nf', 3, 3, float]  # 3 vertices with 3 coordinates
 ):
