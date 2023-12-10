@@ -299,6 +299,10 @@ class MeshAutoencoder(Module):
         use_residual_lfq = True,      # whether to use the latest lookup-free quantization
         rq_kwargs: dict = dict(),
         rvq_stochastic_sample_codes = True,
+        sageconv_kwargs: dict = dict(
+            normalize = True,
+            project = True
+        ),
         commit_loss_weight = 0.1,
         bin_smooth_blur_sigma = 0.4,  # they blur the one hot discretized coordinate positions
         linear_attention = True,
@@ -351,7 +355,7 @@ class MeshAutoencoder(Module):
 
         for _ in range(encoder_depth):
             attn = LinearAttention(dim, flash = flash_attn) if linear_attention else None
-            sage_conv = SAGEConv(dim, dim)
+            sage_conv = SAGEConv(dim, dim, **sageconv_kwargs)
 
             self.encoders.append(ModuleList([
                 attn,
