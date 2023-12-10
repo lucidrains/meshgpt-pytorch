@@ -68,17 +68,12 @@ def set_module_requires_grad_(
 # additional encoder features
 # 1. angle (3), 2. area (1), 3. normals (3)
 
-def derive_angle(x, y):
+def derive_angle(x, y, eps = 1e-5):
     """
     https://github.com/pytorch/pytorch/issues/59194
     """
-    x_norm = x.norm(keepdim = True, dim = -1)
-    y_norm = y.norm(keepdim = True, dim = -1)
-
-    return 2 * torch.atan2(
-        (x * y_norm - x_norm * y).norm(dim = -1),
-        (x * y_norm + x_norm * y).norm(dim = -1)
-    )
+    z = (x * y).sum(dim = -1) / (x.norm(dim = -1) * y.norm(dim = -1))
+    return z.clip(-1 + eps, 1 - eps).arccos()
 
 @torch.no_grad()
 def get_derived_face_features(
@@ -90,8 +85,8 @@ def get_derived_face_features(
 
     edge1, edge2, _ = (face_coords - shifted_face_coords).unbind(dim = 2)
 
-    normals = torch.cross(edge1, edge2, dim = -1)
-    area = normals.norm(dim = -1, keepdim = True)
+    normals = l2norm(torch.cross(edge1, edge2, dim = -1))
+    area = normals.norm(dim = -1, keepdim = True) * 0.5
 
     return dict(
         angles = angles,
@@ -289,11 +284,10 @@ class MeshAutoencoder(Module):
         coor_continuous_range: Tuple[float, float] = (-1., 1.),
         dim_coor_embed = 64,
         num_discrete_area = 128,
-        dim_area_embed = 64,
+        dim_area_embed = 16,
         num_discrete_normals = 128,
         dim_normal_embed = 64,
-        num_discrete_angles = 128,
-        dim_angle_embed = 64,
+        dim_angle_embed = 16,
         encoder_depth = 2,
         decoder_depth = 2,
         dim_codebook = 192,
@@ -320,12 +314,17 @@ class MeshAutoencoder(Module):
 
         # derived feature embedding
 
-        self.discretize_angles = partial(discretize, num_discrete = num_discrete_angles, continuous_range = (0., pi))
-        self.angle_embed = nn.Embedding(num_discrete_angles, dim_angle_embed)
+        def continuous_embed(dim_cont):
+            return nn.Sequential(
+                Rearrange('... -> ... 1'),
+                nn.Linear(1, dim_cont),
+                nn.SiLU(),
+                nn.Linear(dim_cont, dim_cont),
+                nn.LayerNorm(dim_cont)
+            )
 
-        lo, hi = coor_continuous_range
-        self.discretize_area = partial(discretize, num_discrete = num_discrete_area, continuous_range = (0., (hi - lo) ** 2))
-        self.area_embed = nn.Embedding(num_discrete_area, dim_area_embed)
+        self.angle_embed = continuous_embed(dim_angle_embed)
+        self.area_embed = continuous_embed(dim_area_embed)
 
         self.discretize_normals = partial(discretize, num_discrete = num_discrete_normals, continuous_range = coor_continuous_range)
         self.normal_embed = nn.Embedding(num_discrete_normals, dim_normal_embed)
@@ -434,11 +433,9 @@ class MeshAutoencoder(Module):
 
         derived_features = get_derived_face_features(face_coords)
 
-        discrete_angles = self.discretize_angles(derived_features['angles'])
-        angle_embed = self.angle_embed(discrete_angles)
+        angle_embed = self.angle_embed(derived_features['angles'])
 
-        discrete_area = self.discretize_area(derived_features['area'])
-        area_embed = self.area_embed(discrete_area)
+        area_embed = self.area_embed(derived_features['area'])
 
         discrete_normal = self.discretize_normals(derived_features['normals'])
         normal_embed = self.normal_embed(discrete_normal)
