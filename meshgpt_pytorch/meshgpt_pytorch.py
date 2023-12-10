@@ -261,14 +261,15 @@ class LinearAttention(Module):
         x = self.norm(x)
         q, k, v = self.to_qkv(x)
 
+        if exists(mask):
+            mask = rearrange(mask, 'b n -> b 1 1 n')
+            q, k, v = map(lambda t: t.masked_fill(~mask, 0.), (q, k, v))
+
         q, k = map(l2norm, (q, k))
         q = q * self.temperature.exp()
 
         if exists(mask):
-            mask = rearrange(mask, 'b n -> b 1 1 n')
-            q = q.masked_fill(~mask, 0.)
-            k = k.masked_fill(~mask, 0.)
-            v = v.masked_fill(~mask, 0.)
+            q, k, v = map(lambda t: t.masked_fill(~mask, 0.), (q, k, v))
 
         out, *_ = self.attend(q, k, v)
 
