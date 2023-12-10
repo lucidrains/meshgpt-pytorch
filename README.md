@@ -78,7 +78,7 @@ faces_coordinates = transformer.generate()
 
 ```
 
-For text-conditioned 3d shape synthesis, simply set `condition_on_text = True` on your `MeshTransformer`, and then pass in your list of descriptions as the `texts` keyword argument
+For <a href="https://www.youtube.com/watch?v=NXX0dKw4SjI">text-conditioned 3d shape synthesis</a>, simply set `condition_on_text = True` on your `MeshTransformer`, and then pass in your list of descriptions as the `texts` keyword argument
 
 ex.
 ```python
