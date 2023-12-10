@@ -32,6 +32,7 @@ from vector_quantize_pytorch import (
 )
 
 from meshgpt_pytorch.data import derive_face_edges_from_faces
+from meshgpt_pytorch.version import __version__
 
 from classifier_free_guidance_pytorch import (
     classifier_free_guidance,
@@ -41,6 +42,7 @@ from classifier_free_guidance_pytorch import (
 from torch_geometric.nn.conv import SAGEConv
 
 from tqdm import tqdm
+from packaging import version
 
 import pickle
 
@@ -412,10 +414,26 @@ class MeshAutoencoder(Module):
 
         assert 'config' in pkg, 'model configs were not found in this saved checkpoint'
 
+        if version.parse(__version__) != version.parse(pkg['version']):
+            self.print(f'loading saved mesh autoencoder at version {pkg["version"]}, but current package version is {__version__}')
+
         config = pickle.loads(pkg['config'])
         tokenizer = cls(**config)
+
         tokenizer.load_state_dict(pkg['model'], strict = strict)
         return tokenizer
+
+    def save(self, path, overwrite = True):
+        path = Path(path)
+        assert overwrite or not path.exists()
+
+        pkg = dict(
+            model = self.state_dict(),
+            config = self._config,
+            version = __version__,
+        )
+
+        torch.save(pkg, str(path))
 
     @beartype
     def encode(
