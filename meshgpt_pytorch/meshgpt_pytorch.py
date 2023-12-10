@@ -965,7 +965,7 @@ class MeshTransformer(Module):
         codes = None,
         return_loss = True,
         return_cache = False,
-        append_eos = False,
+        append_eos = True,
         cache: Optional[LayerIntermediates] = None,
         texts: Optional[List[str]] = None,
         text_embeds: Optional[Tensor] = None,
@@ -980,6 +980,9 @@ class MeshTransformer(Module):
 
             if exists(texts):
                 text_embeds = self.conditioner.embed_texts(texts)
+
+            if exists(codes):
+                assert text_embeds.shape[0] == codes.shape[0], 'batch size of texts or text embeddings is not equal to the batch size of the mesh codes'
 
             _, maybe_dropped_text_embeds = self.conditioner(
                 text_embeds = text_embeds,
@@ -1005,6 +1008,8 @@ class MeshTransformer(Module):
         # auto append eos token
 
         if append_eos:
+            assert exists(codes)
+
             code_lens = ((codes != self.pad_id).cumsum(dim = -1) == 0).sum(dim = -1)
 
             codes = F.pad(codes, (0, 1), value = 0)
