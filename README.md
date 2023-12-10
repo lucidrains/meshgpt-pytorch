@@ -42,7 +42,7 @@ autoencoder = MeshAutoencoder(
 vertices = torch.randn((2, 121, 3))            # (batch, num vertices, coor (3))
 faces = torch.randint(0, 121, (2, 64, 3))      # (batch, num faces, vertices (3))
 
-# make sure faces and face_edges are padded with `-1` for variable lengthed meshes. otherwise, you will need to explicitly pass in `face_len` as well as `face_edges_len`
+# make sure faces are padded with `-1` for variable lengthed meshes
 
 # forward in the faces
 

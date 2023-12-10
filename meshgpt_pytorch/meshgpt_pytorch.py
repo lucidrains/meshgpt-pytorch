@@ -689,8 +689,6 @@ class MeshAutoencoder(Module):
         vertices:       TensorType['b', 'nv', 3, float],
         faces:          TensorType['b', 'nf', 3, int],
         face_edges:     Optional[TensorType['b', 'e', 2, int]] = None,
-        face_len:       Optional[TensorType['b', int]] = None,
-        face_edges_len: Optional[TensorType['b', int]] = None,
         return_codes = False,
         return_loss_breakdown = False,
         rvq_sample_codebook_temp = 1.
@@ -700,15 +698,8 @@ class MeshAutoencoder(Module):
 
         num_faces, num_face_edges, device = faces.shape[1], face_edges.shape[1], faces.device
 
-        if exists(face_len):
-            face_mask = torch.arange(num_faces, device = device) < rearrange(face_len, 'b -> b 1')
-        else:
-            face_mask = reduce(faces != self.pad_id, 'b nf c -> b nf', 'all')
-
-        if exists(face_edges_len):
-            face_edges_mask = torch.arange(num_face_edges, device = device) < rearrange(face_edges_len, 'b -> b 1')
-        else:
-            face_edges_mask = reduce(face_edges != self.pad_id, 'b e ij -> b e', 'all')
+        face_mask = reduce(faces != self.pad_id, 'b nf c -> b nf', 'all')
+        face_edges_mask = reduce(face_edges != self.pad_id, 'b e ij -> b e', 'all')
 
         encoded, face_coordinates = self.encode(
             vertices = vertices,
@@ -957,17 +948,13 @@ class MeshTransformer(Module):
         vertices:       TensorType['b', 'nv', 3, int],
         faces:          TensorType['b', 'nf', 3, int],
         face_edges:     Optional[TensorType['b', 'e', 2, int]] = None,
-        face_len:       Optional[TensorType['b', int]] = None,
-        face_edges_len: Optional[TensorType['b', int]] = None,
         cache:          Optional[LayerIntermediates] = None,
         **kwargs
     ):
         codes = self.autoencoder.tokenize(
             vertices = vertices,
             faces = faces,
-            face_edges = face_edges,
-            face_len = face_len,
-            face_edges_len = face_edges_len
+            face_edges = face_edges
         )
 
         return self.forward_on_codes(codes, cache = cache, **kwargs)
