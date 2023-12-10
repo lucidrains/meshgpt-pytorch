@@ -69,10 +69,7 @@ def set_module_requires_grad_(
 # 1. angle (3), 2. area (1), 3. normals (3)
 
 def derive_angle(x, y, eps = 1e-5):
-    """
-    https://github.com/pytorch/pytorch/issues/59194
-    """
-    z = (x * y).sum(dim = -1) / (x.norm(dim = -1) * y.norm(dim = -1))
+    z = einsum('... d, ... d -> ...', l2norm(x), l2norm(y))
     return z.clip(-1 + eps, 1 - eps).arccos()
 
 @torch.no_grad()

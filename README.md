@@ -58,7 +58,7 @@ loss.backward()
 
 transformer = MeshTransformer(
     autoencoder,
-    dim = 16,
+    dim = 512,
     max_seq_len = 768
 )
 
@@ -75,6 +75,32 @@ faces_coordinates = transformer.generate()
 
 # (batch, num faces, vertices (3), coordinates (3))
 # now post process for the generated 3d asset
+
+```
+
+For text-conditioned 3d shape synthesis, simply set `condition_on_text = True` on your `MeshTransformer`, and then pass in your list of descriptions as the `texts` keyword argument
+
+ex.
+```python
+transformer = MeshTransformer(
+    autoencoder,
+    dim = 512,
+    max_seq_len = 768,
+    condition_on_text = True
+).cpu()
+
+
+loss = transformer(
+    vertices = vertices,
+    faces = faces,
+    texts = ['a high chair', 'a small teapot'],
+)
+
+loss.backward()
+
+# after much training of transformer, you can now sample novel 3d assets conditioned on text
+
+faces_coordinates = transformer.generate(texts = ['a long table'])
 
 ```
 
