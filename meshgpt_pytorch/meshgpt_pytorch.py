@@ -1,3 +1,4 @@
+from pathlib import Path
 from functools import partial
 from math import ceil, pi
 
@@ -40,6 +41,8 @@ from classifier_free_guidance_pytorch import (
 from torch_geometric.nn.conv import SAGEConv
 
 from tqdm import tqdm
+
+import pickle
 
 # helper functions
 
@@ -301,10 +304,17 @@ class MeshAutoencoder(Module):
     ):
         super().__init__()
 
-        self.num_discrete_coors = num_discrete_coors
-        self.coor_continuous_range = coor_continuous_range
+        # autosaving the config
+
+        _locals = locals()
+        _locals.pop('self', None)
+        _locals.pop('__class__', None)
+        self._config = pickle.dumps(_locals)
 
         # main face coordinate embedding
+
+        self.num_discrete_coors = num_discrete_coors
+        self.coor_continuous_range = coor_continuous_range
 
         self.discretize_face_coords = partial(discretize, num_discrete = num_discrete_coors, continuous_range = coor_continuous_range)
         self.coor_embed = nn.Embedding(num_discrete_coors, dim_coor_embed)
@@ -393,6 +403,19 @@ class MeshAutoencoder(Module):
 
         self.commit_loss_weight = commit_loss_weight
         self.bin_smooth_blur_sigma = bin_smooth_blur_sigma
+
+    @classmethod
+    def init_and_load_from(cls, path, strict = True):
+        path = Path(path)
+        assert path.exists()
+        pkg = torch.load(str(path), map_location = 'cpu')
+
+        assert 'config' in pkg, 'model configs were not found in this saved checkpoint'
+
+        config = pickle.loads(pkg['config'])
+        tokenizer = cls(**config)
+        tokenizer.load_state_dict(pkg['model'], strict = strict)
+        return tokenizer
 
     @beartype
     def encode(

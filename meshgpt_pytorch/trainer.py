@@ -243,7 +243,8 @@ class MeshAutoencoderTrainer(Module):
             warmup = self.warmup.state_dict(),
             scheduler = self.scheduler.state_dict(),
             version = __version__,
-            step = self.step.item()
+            step = self.step.item(),
+            config = self.unwrapped_model._config
         )
 
         torch.save(pkg, str(path))
