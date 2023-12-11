@@ -20,7 +20,7 @@ setup(
     'mesh generation'
   ],
   install_requires=[
-    'accelerate',
+    'accelerate>=0.25.0',
     'beartype',
     'classifier-free-guidance-pytorch>=0.4.2',
     'einops>=0.7.0',
