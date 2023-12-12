@@ -12,6 +12,8 @@ Will also add text conditioning, for eventual text-to-3d asset
 
 - <a href="https://github.com/arogozhnikov/einops">Einops</a> for making my life easy
 
+- <a href="https://github.com/MarcusLoppe">Marcus</a> for the initial code review (pointing out some missing derived features) as well as running the first successful end-to-end experiments
+
 ## Install
 
 ```bash
