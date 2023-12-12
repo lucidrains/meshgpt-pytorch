@@ -136,6 +136,10 @@ faces_coordinates = transformer.generate(texts = ['a long table'])
     - [x] complete preliminary text conditioning
     - [ ] make sure CFG library can support passing in arguments to the two separate calls when cond scaling (as well as aggregating their outputs)
 
+- [ ] make transformer efficient
+    - [ ] local attention + sparse global attention
+    - [ ] reversible networks
+    - [ ] hourglass transformer - lukasz kaiser's paper
 - [ ] figure out how necessary that batchnorm after the sageconv in autoencoder really is
 - [ ] speculative decoding option
 - [ ] hierarchical transformers (using the RQ transformer)
