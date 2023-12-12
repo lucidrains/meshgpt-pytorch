@@ -140,6 +140,7 @@ faces_coordinates = transformer.generate(texts = ['a long table'])
     - [ ] local attention + sparse global attention
     - [ ] reversible networks
     - [ ] hourglass transformer - lukasz kaiser's paper
+    - [ ] give mamba a test drive
 - [ ] figure out how necessary that batchnorm after the sageconv in autoencoder really is
 - [ ] speculative decoding option
 - [ ] hierarchical transformers (using the RQ transformer)
