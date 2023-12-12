@@ -23,7 +23,7 @@ class DatasetFromTransforms(Dataset):
     def __init__(
         self,
         folder: str,
-        transforms: Dict[str, Callable[Path, Tuple[Vertices, Faces]]]
+        transforms: Dict[str, Callable[[Path], Tuple[Vertices, Faces]]]
     ):
         folder = Path(folder)
         assert folder.exists and folder.is_dir()
