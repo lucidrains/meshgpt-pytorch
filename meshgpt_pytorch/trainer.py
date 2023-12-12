@@ -107,6 +107,9 @@ class MeshAutoencoderTrainer(Module):
         num_train_steps: int,
         batch_size: int,
         grad_accum_every: int,
+        val_dataset: Optional[Dataset] = None,
+        val_every: int = 100,
+        val_num_batches: int = 5,
         learning_rate: float = 1e-4,
         weight_decay: float = 0.,
         max_grad_norm: Optional[float] = None,
@@ -158,6 +161,22 @@ class MeshAutoencoderTrainer(Module):
             drop_last = True,
             collate_fn = partial(custom_collate, pad_id = model.pad_id)
         )
+
+        self.should_validate = exists(val_dataset)
+
+        if self.should_validate:
+            assert len(val_dataset) > 0, 'your validation dataset is empty'
+
+            self.val_every = val_every
+            self.val_num_batches = val_num_batches
+
+            self.val_dataloader = DataLoader(
+                val_dataset,
+                batch_size = batch_size,
+                shuffle = True,
+                drop_last = True,
+                collate_fn = partial(custom_collate, pad_id = model.pad_id)
+            )
 
         self.data_kwargs = data_kwargs
 
@@ -266,9 +285,23 @@ class MeshAutoencoderTrainer(Module):
 
         self.step.copy_(pkg['step'])
 
+    def next_data_to_forward_kwargs(self, dl_iter) -> dict:
+        data = next(dl_iter)
+
+        if isinstance(data, tuple):
+            forward_kwargs = dict(zip(self.data_kwargs, data))
+
+        elif isinstance(data, dict):
+            forward_kwargs = data
+
+        return forward_kwargs
+
     def forward(self):
         step = self.step.item()
         dl_iter = cycle(self.dataloader)
+
+        if self.is_main and self.should_validate:
+            val_dl_iter = cycle(self.val_dataloader)
 
         while step < self.num_train_steps:
 
@@ -276,13 +309,7 @@ class MeshAutoencoderTrainer(Module):
                 is_last = i == (self.grad_accum_every - 1)
                 maybe_no_sync = partial(self.accelerator.no_sync, self.model) if not is_last else nullcontext
 
-                data = next(dl_iter)
-
-                if isinstance(data, tuple):
-                    forward_kwargs = dict(zip(self.data_kwargs, data))
-
-                elif isinstance(data, dict):
-                    forward_kwargs = data
+                forward_kwargs = self.next_data_to_forward_kwargs(dl_iter)
 
                 with self.accelerator.autocast(), maybe_no_sync():
                     loss = self.model(**forward_kwargs)
@@ -310,6 +337,26 @@ class MeshAutoencoderTrainer(Module):
 
             if self.is_main:
                 self.ema_model.update()
+
+            self.wait()
+
+            if self.is_main and self.should_validate and divisible_by(step, self.val_every):
+                total_val_loss = 0.
+                self.ema_model.eval()
+
+                num_val_batches = self.val_num_batches * self.grad_accum_every
+
+                for _ in range(num_val_batches):
+                    with self.accelerator.autocast(), torch.no_grad():
+
+                        forward_kwargs = self.next_data_to_forward_kwargs(val_dl_iter)
+
+                        val_loss = self.ema_model(**forward_kwargs)
+
+                        total_val_loss += (val_loss / num_val_batches)
+
+                self.print(f'valid loss: {total_val_loss:.3f}')
+                self.log(val_loss = total_val_loss, step = step)
 
             self.wait()
 

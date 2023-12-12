@@ -696,6 +696,8 @@ class MeshAutoencoder(Module):
         face_edges:     Optional[TensorType['b', 'e', 2, int]] = None,
         return_codes = False,
         return_loss_breakdown = False,
+        return_recon_faces = False,
+        only_return_recon_faces = False,
         rvq_sample_codebook_temp = 1.
     ):
         if not exists(face_edges):
@@ -723,6 +725,7 @@ class MeshAutoencoder(Module):
         )
 
         if return_codes:
+            assert not return_recon_faces, 'cannot return reconstructed faces when just returning raw codes'
             return codes
 
         decode = self.decode(
@@ -731,6 +734,23 @@ class MeshAutoencoder(Module):
         )
 
         pred_face_coords = self.to_coor_logits(decode)
+
+        # compute reconstructed faces if needed
+
+        if return_recon_faces or only_return_recon_faces:
+
+            recon_faces = undiscretize(
+                pred_face_coords.argmax(dim = -1),
+                num_discrete = self.num_discrete_coors,
+                continuous_range = self.coor_continuous_range,
+            )
+
+            recon_faces = rearrange(recon_faces, 'b nf (nv c) -> b nf nv c', nv = 3)
+            face_mask = rearrange(face_mask, 'b nf -> b nf 1 1')
+            recon_faces = recon_faces.masked_fill(~face_mask, float('nan'))
+
+        if only_return_recon_faces:
+            return recon_faces
 
         # prepare for recon loss
 
@@ -760,12 +780,22 @@ class MeshAutoencoder(Module):
         total_loss = recon_loss + \
                      commit_loss.sum() * self.commit_loss_weight
 
-        if not return_loss_breakdown:
-            return total_loss
+        # calculate loss breakdown if needed
 
         loss_breakdown = (recon_loss, commit_loss)
 
-        return recon_loss, loss_breakdown
+        # some return logic
+
+        if not return_loss_breakdown:
+            if not return_recon_faces:
+                return total_loss
+
+            return recon_faces, total_loss
+
+        if not return_recon_faces:
+            return total_loss, loss_breakdown
+
+        return recon_faces, total_loss, loss_breakdown
 
 class MeshTransformer(Module):
     @beartype
