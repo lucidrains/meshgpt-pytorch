@@ -63,6 +63,15 @@ def l1norm(t):
 def l2norm(t):
     return F.normalize(t, dim = -1, p = 2)
 
+def ContinuousEmbed(dim_cont):
+    return nn.Sequential(
+        Rearrange('... -> ... 1'),
+        nn.Linear(1, dim_cont),
+        nn.SiLU(),
+        nn.Linear(dim_cont, dim_cont),
+        nn.LayerNorm(dim_cont)
+    )
+
 def set_module_requires_grad_(
     module: Module,
     requires_grad: bool
@@ -290,6 +299,7 @@ class MeshAutoencoder(Module):
         dim_area_embed = 16,
         num_discrete_normals = 128,
         dim_normal_embed = 64,
+        num_discrete_angle = 128,
         dim_angle_embed = 16,
         encoder_depth = 2,
         decoder_depth = 2,
@@ -328,17 +338,12 @@ class MeshAutoencoder(Module):
 
         # derived feature embedding
 
-        def continuous_embed(dim_cont):
-            return nn.Sequential(
-                Rearrange('... -> ... 1'),
-                nn.Linear(1, dim_cont),
-                nn.SiLU(),
-                nn.Linear(dim_cont, dim_cont),
-                nn.LayerNorm(dim_cont)
-            )
+        self.discretize_angle = partial(discretize, num_discrete = num_discrete_angle, continuous_range = (0., pi))
+        self.angle_embed = nn.Embedding(num_discrete_angle, dim_angle_embed)
 
-        self.angle_embed = continuous_embed(dim_angle_embed)
-        self.area_embed = continuous_embed(dim_area_embed)
+        lo, hi = coor_continuous_range
+        self.discretize_area = partial(discretize, num_discrete = num_discrete_angle, continuous_range = (0., (hi - lo) ** 2))
+        self.area_embed = nn.Embedding(num_discrete_area, dim_area_embed)
 
         self.discretize_normals = partial(discretize, num_discrete = num_discrete_normals, continuous_range = coor_continuous_range)
         self.normal_embed = nn.Embedding(num_discrete_normals, dim_normal_embed)
@@ -476,9 +481,11 @@ class MeshAutoencoder(Module):
 
         derived_features = get_derived_face_features(face_coords)
 
-        angle_embed = self.angle_embed(derived_features['angles'])
+        discrete_angle = self.discretize_angle(derived_features['angles'])
+        angle_embed = self.angle_embed(discrete_angle)
 
-        area_embed = self.area_embed(derived_features['area'])
+        discrete_area = self.discretize_area(derived_features['area'])
+        area_embed = self.area_embed(discrete_area)
 
         discrete_normal = self.discretize_normals(derived_features['normals'])
         normal_embed = self.normal_embed(discrete_normal)
