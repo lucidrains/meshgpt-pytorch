@@ -342,7 +342,7 @@ class MeshAutoencoder(Module):
         self.angle_embed = nn.Embedding(num_discrete_angle, dim_angle_embed)
 
         lo, hi = coor_continuous_range
-        self.discretize_area = partial(discretize, num_discrete = num_discrete_angle, continuous_range = (0., (hi - lo) ** 2))
+        self.discretize_area = partial(discretize, num_discrete = num_discrete_area, continuous_range = (0., (hi - lo) ** 2))
         self.area_embed = nn.Embedding(num_discrete_area, dim_area_embed)
 
         self.discretize_normals = partial(discretize, num_discrete = num_discrete_normals, continuous_range = coor_continuous_range)
