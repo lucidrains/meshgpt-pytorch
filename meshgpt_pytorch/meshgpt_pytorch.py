@@ -1015,9 +1015,13 @@ class MeshTransformer(Module):
                 logits[:, -1] = -torch.finfo(logits.dtype).max
 
             filtered_logits = filter_logits_fn(logits, **filter_kwargs)
-            probs = F.softmax(filtered_logits / temperature, dim = -1)
 
-            sample = torch.multinomial(probs, 1)
+            if temperature == 0.:
+                sample = filtered_logits.argmax(dim = -1)
+            else:
+                probs = F.softmax(filtered_logits / temperature, dim = -1)
+                sample = torch.multinomial(probs, 1)
+
             codes, _ = pack([codes, sample], 'b *')
 
             # check for all rows to have [eos] to terminate
