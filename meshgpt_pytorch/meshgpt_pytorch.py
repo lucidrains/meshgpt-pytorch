@@ -286,9 +286,11 @@ class LinearAttention(Module):
     def forward(
         self,
         x,
-        mask = None
+        mask = None,
+        channel_first = True
     ):
-        x = rearrange(x, 'b d n -> b n d')
+        if channel_first:
+            x = rearrange(x, 'b d n -> b n d')
 
         x = self.norm(x)
         q, k, v = self.to_qkv(x)
@@ -306,7 +308,11 @@ class LinearAttention(Module):
         out, *_ = self.attend(q, k, v)
 
         out = self.to_out(out)
-        return rearrange(out, 'b n d -> b d n')
+
+        if channel_first:
+            out = rearrange(out, 'b n d -> b d n')
+
+        return out
 
 # main classes
 
@@ -554,9 +560,9 @@ class MeshAutoencoder(Module):
 
         for maybe_attn, conv in self.encoders:
 
-            if exists(maybe_attn) and False:
+            if exists(maybe_attn):
                 face_embed = to_orig_face_embed_shape(face_embed)
-                face_embed = maybe_attn(face_embed, mask = face_mask) + face_embed
+                face_embed = maybe_attn(face_embed, mask = face_mask, channel_first = False) + face_embed
                 face_embed = face_embed[face_mask]
 
             face_embed = conv(face_embed, face_edges)
@@ -659,7 +665,7 @@ class MeshAutoencoder(Module):
 
         for maybe_attn, resnet_block in self.decoders:
             if exists(maybe_attn):
-                x = maybe_attn(x, mask = face_mask) + x
+                x = maybe_attn(x, mask = face_mask, channel_first = True) + x
 
             x = resnet_block(x, mask = conv_face_mask)
 
