@@ -120,6 +120,7 @@ class MeshAutoencoderTrainer(Module):
         accelerator_kwargs: dict = dict(),
         optimizer_kwargs: dict = dict(),
         checkpoint_every = 1000,
+        checkpoint_every_epoch: Optional[int] = None,
         checkpoint_folder = './checkpoints',
         data_kwargs: Tuple[str, ...] = ['vertices', 'faces', 'face_edges'],
         warmup_steps = 1000,
@@ -198,6 +199,7 @@ class MeshAutoencoderTrainer(Module):
         self.num_train_steps = num_train_steps
         self.register_buffer('step', torch.tensor(0))
 
+        self.checkpoint_every_epoch = checkpoint_every_epoch
         self.checkpoint_every = checkpoint_every
         self.checkpoint_folder = Path(checkpoint_folder)
         self.checkpoint_folder.mkdir(exist_ok = True, parents = True)
@@ -404,10 +406,17 @@ class MeshAutoencoderTrainer(Module):
                 total_loss += current_loss
                 num_batches += 1
                 progress_bar.set_postfix(loss=current_loss)
+                
+            
  
             avg_epoch_loss = total_loss / num_batches 
             epoch_losses.append(avg_epoch_loss)
             self.print(f'Epoch {epoch + 1} average loss: {avg_epoch_loss}')
+            self.wait()
+
+            if self.checkpoint_every_epoch is not None and epoch % self.checkpoint_every_epoch == 0:
+                self.save(self.checkpoint_folder / f'mesh-autoencoder.ckpt.{epoch}.pt')
+ 
 
         self.print('Training complete') 
         if diplay_graph:
@@ -437,7 +446,9 @@ class MeshTransformerTrainer(Module):
         ema_kwargs: dict = dict(),
         accelerator_kwargs: dict = dict(),
         optimizer_kwargs: dict = dict(),
-        checkpoint_every = 1000,
+        
+        checkpoint_every = 1000, 
+        checkpoint_every_epoch: Optional[int] = None,
         checkpoint_folder = './checkpoints',
         data_kwargs: Tuple[str, ...] = ['vertices', 'faces', 'face_edges', 'face_len', 'face_edges_len'],
         warmup_steps = 1000,
@@ -501,6 +512,7 @@ class MeshTransformerTrainer(Module):
         self.num_train_steps = num_train_steps
         self.register_buffer('step', torch.tensor(0))
 
+        self.checkpoint_every_epoch = checkpoint_every_epoch
         self.checkpoint_every = checkpoint_every
         self.checkpoint_folder = Path(checkpoint_folder)
         self.checkpoint_folder.mkdir(exist_ok = True, parents = True)
@@ -668,6 +680,10 @@ class MeshTransformerTrainer(Module):
             avg_epoch_loss = total_loss / num_batches 
             epoch_losses.append(avg_epoch_loss)
             self.print(f'Epoch {epoch + 1} average loss: {avg_epoch_loss}')
+            self.wait()
+
+            if self.checkpoint_every_epoch is not None and epoch % self.checkpoint_every_epoch == 0:
+                self.save(self.checkpoint_folder / f'mesh-transformer.ckpt.{epoch}.pt')
 
         self.print('Training complete') 
         if diplay_graph:
