@@ -338,7 +338,11 @@ class MeshAutoencoder(Module):
         ),
         commit_loss_weight = 0.1,
         bin_smooth_blur_sigma = 0.4,  # they blur the one hot discretized coordinate positions
-        linear_attention = True,
+        linear_attention = False,
+        linear_attn_kwargs: dict = dict(
+            dim_head = 32,
+            heads = 4
+        ),
         pad_id = -1,
         flash_attn = True
     ):
@@ -382,7 +386,7 @@ class MeshAutoencoder(Module):
         self.encoders = ModuleList([])
 
         for _ in range(encoder_depth):
-            attn = LinearAttention(dim, flash = flash_attn) if linear_attention else None
+            attn = LinearAttention(dim, flash = flash_attn, **linear_attn_kwargs) if linear_attention else None
             sage_conv = SAGEConv(dim, dim, **sageconv_kwargs)
 
             self.encoders.append(ModuleList([
@@ -421,7 +425,7 @@ class MeshAutoencoder(Module):
         self.decoders = ModuleList([])
 
         for _ in range(decoder_depth):
-            attn = LinearAttention(dim, flash = flash_attn) if linear_attention else None
+            attn = LinearAttention(dim, flash = flash_attn, **linear_attn_kwargs) if linear_attention else None
             resnet_block = ResnetBlock(dim)
 
             self.decoders.append(ModuleList([
