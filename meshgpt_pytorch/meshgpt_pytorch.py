@@ -57,11 +57,37 @@ def default(v, d):
 def divisible_by(num, den):
     return (num % den) == 0
 
+
+def set_module_requires_grad_(
+    module: Module,
+    requires_grad: bool
+):
+    for param in module.parameters():
+        param.requires_grad = requires_grad
+
 def l1norm(t):
     return F.normalize(t, dim = -1, p = 1)
 
 def l2norm(t):
     return F.normalize(t, dim = -1, p = 2)
+
+def pad_at_dim(t, padding, dim = -1, value = 0):
+    ndim = t.ndim
+    right_dims = (ndim - dim - 1) if dim >= 0 else (-dim - 1)
+    zeros = (0, 0) * right_dims
+    return F.pad(t, (*zeros, *padding), value = value)
+
+def pad_to_length(t, length, dim = -1, value = 0, right = True):
+    curr_length = t.shape[dim]
+    remainder = length - curr_length
+
+    if remainder <= 0:
+        return t
+
+    padding = (0, remainder) if right else (remainder, 0)
+    return pad_at_dim(t, padding, dim = dim, value = value)
+
+# continuous embed
 
 def ContinuousEmbed(dim_cont):
     return nn.Sequential(
@@ -71,13 +97,6 @@ def ContinuousEmbed(dim_cont):
         nn.Linear(dim_cont, dim_cont),
         nn.LayerNorm(dim_cont)
     )
-
-def set_module_requires_grad_(
-    module: Module,
-    requires_grad: bool
-):
-    for param in module.parameters():
-        param.requires_grad = requires_grad
 
 # additional encoder features
 # 1. angle (3), 2. area (1), 3. normals (3)
@@ -812,15 +831,17 @@ class MeshTransformer(Module):
         *,
         dim = 512,
         max_seq_len = 8192,
-        attn_num_tokens = 128 ** 2,
+        flash_attn = True,
         attn_depth = 12,
         attn_dim_head = 64,
         attn_heads = 16,
-        flash_attn = True,
         attn_kwargs: dict = dict(
             ff_glu = True,
             num_mem_kv = 4
         ),
+        fine_attn_depth = 2,
+        fine_attn_dim_head = 32,
+        fine_attn_heads = 8,
         pad_id = -1,
         condition_on_text = False,
         text_condition_model_types = ('t5',),
@@ -864,7 +885,15 @@ class MeshTransformer(Module):
             )
             cross_attn_dim_context = self.conditioner.dim_latent
 
+        # for summarizing the vertices of each face
+
+        self.to_face_tokens = nn.Sequential(
+            nn.Linear(self.num_quantizers * 3 * dim, dim),
+            nn.LayerNorm(dim)
+        )
+
         # main autoregressive attention network
+        # attending to a face token
 
         self.decoder = Decoder(
             dim = dim,
@@ -877,12 +906,25 @@ class MeshTransformer(Module):
             **attn_kwargs
         )
 
+        # decoding the vertices, 2-stage hierarchy
+
+        self.fine_decoder = Decoder(
+            dim = dim,
+            depth = fine_attn_depth,
+            dim_head = attn_dim_head,
+            heads = attn_heads,
+            flash_attn = flash_attn,
+            **attn_kwargs
+        )
+
+        # to logits
+
         self.to_logits = nn.Linear(dim, self.codebook_size + 1)
 
-        self.pad_id = pad_id
-
+        # padding id
         # force the autoencoder to use the same pad_id given in transformer
 
+        self.pad_id = pad_id
         autoencoder.pad_id = pad_id
 
     @property
@@ -906,7 +948,8 @@ class MeshTransformer(Module):
         return_codes = False,
         texts: Optional[List[str]] = None,
         text_embeds: Optional[Tensor] = None,
-        cond_scale = 1.
+        cond_scale = 1.,
+        cache_kv = False
     ):
         if exists(prompt):
             assert not exists(batch_size)
@@ -931,7 +974,8 @@ class MeshTransformer(Module):
 
         # for now, kv cache disabled when conditioning on text
 
-        can_cache = not self.condition_on_text or cond_scale == 1.
+        assert not cache_kv, 'caching not available yet'
+        can_cache = cache_kv and (not self.condition_on_text or cond_scale == 1.)
 
         cache = None
 
@@ -1008,7 +1052,7 @@ class MeshTransformer(Module):
         return_loss = True,
         return_cache = False,
         append_eos = True,
-        cache: Optional[LayerIntermediates] = None,
+        cache = None,
         texts: Optional[List[str]] = None,
         text_embeds: Optional[Tensor] = None,
         cond_drop_prob = 0.
@@ -1090,29 +1134,72 @@ class MeshTransformer(Module):
         vertex_embed = repeat(self.vertex_embed, 'nv d -> (r nv q) d', r = ceil(code_len / (3 * self.num_quantizers)), q = self.num_quantizers)
         codes = codes + vertex_embed[:code_len]
 
-        # auto prepend sos token
+        # create a token per face, by summarizing the 3 vertices
+        # this is similar in design to the RQ transformer from Lee et al. https://arxiv.org/abs/2203.01941
 
-        sos = repeat(self.sos_token, 'd -> b d', b = batch)
-        codes, _ = pack([sos, codes], 'b * d')
+        num_tokens_per_face = self.num_quantizers * 3
+        code_len_is_multiple_of_face = divisible_by(code_len, num_tokens_per_face)
+        next_multiple_code_len = ceil(code_len / num_tokens_per_face) * num_tokens_per_face
 
-        # attention
+        codes = pad_to_length(codes, next_multiple_code_len, dim = -2)
 
-        attended, intermediates_with_cache = self.decoder(
-            codes,
-            cache = cache,
+        # grouped codes will be used for the second stage
+
+        grouped_codes = rearrange(codes, 'b (nf n) d -> b nf n d', n = num_tokens_per_face)
+
+        # create the coarse tokens for the first attention network
+
+        face_codes = grouped_codes if code_len_is_multiple_of_face else grouped_codes[:, :-1]
+        face_codes = rearrange(face_codes, 'b nf n d -> b nf (n d)')
+        face_codes = self.to_face_tokens(face_codes)
+
+        # caches
+
+        coarse_cache, fine_cache = cache if exists(cache) else (None, None)
+
+        # attention on face codes (coarse)
+
+        attended_face_codes, coarse_cache = self.decoder(
+            face_codes,
+            cache = coarse_cache,
             return_hiddens = True,
             **attn_context_kwargs
         )
 
+        # auto prepend sos token
+
+        sos = repeat(self.sos_token, 'd -> b d', b = batch)
+
+        attended_face_codes, _ = pack([sos, attended_face_codes], 'b * d')
+
+        grouped_codes = pad_to_length(grouped_codes, attended_face_codes.shape[-2], dim = 1)
+        fine_vertex_codes, _ = pack([attended_face_codes, grouped_codes], 'b n * d')
+
+        fine_vertex_codes = fine_vertex_codes[..., :-1, :]
+        fine_vertex_codes = rearrange(fine_vertex_codes, 'b nf n d -> (b nf) n d')
+
+        # fine attention - 2nd stage
+
+        attended_vertex_codes, fine_cache = self.fine_decoder(
+            fine_vertex_codes,
+            cache = fine_cache,
+            return_hiddens = True
+        )
+
+        # reconstitute original sequence
+
+        attended_vertex_codes = rearrange(attended_vertex_codes, '(b nf) n d -> b (nf n) d', b = batch)
+        attended_vertex_codes = attended_vertex_codes[:, :(code_len + 1)]
+
         # logits
 
-        logits = self.to_logits(attended)
+        logits = self.to_logits(attended_vertex_codes)
 
         if not return_loss:
             if not return_cache:
                 return logits
 
-            return logits, intermediates_with_cache
+            return logits, (coarse_cache, fine_cache)
 
         # loss
 
