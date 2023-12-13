@@ -30,7 +30,7 @@ setup(
     'torch>=2.0',
     'torch_geometric',
     'torchtyping',
-    'tqdm'
+    'tqdm',
     'vector-quantize-pytorch>=1.12.0',
     'x-transformers>=1.26.0',
   ],
