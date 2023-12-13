@@ -5,6 +5,7 @@ from torch.utils.data import Dataset
 from torch.nn.utils.rnn import pad_sequence
 
 from einops import rearrange, reduce
+from torch import nn, Tensor
 
 from beartype import beartype
 from beartype.typing import Tuple, Union, Optional, Callable, Dict
@@ -105,8 +106,11 @@ def custom_collate(data, pad_id = -1):
     output = []
 
     for datum in zip(*data):
-        padded = pad_sequence(datum, batch_first = True, padding_value = pad_id)
-        output.append(padded)
+        if isinstance(datum[0], Tensor):
+            padded = pad_sequence(datum, batch_first=True, padding_value=pad_id)
+            output.append(padded)
+        else:
+            output.append(list(datum)) 
 
     output = tuple(output)
 
