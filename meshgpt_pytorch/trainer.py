@@ -414,7 +414,7 @@ class MeshAutoencoderTrainer(Module):
             self.print(f'Epoch {epoch + 1} average loss: {avg_epoch_loss}')
             self.wait()
 
-            if self.checkpoint_every_epoch is not None and epoch % self.checkpoint_every_epoch == 0:
+            if self.checkpoint_every_epoch is not None and epoch % self.checkpoint_every_epoch+1 == 0:
                 self.save(self.checkpoint_folder / f'mesh-autoencoder.ckpt.{epoch}.pt')
  
 
@@ -682,7 +682,7 @@ class MeshTransformerTrainer(Module):
             self.print(f'Epoch {epoch + 1} average loss: {avg_epoch_loss}')
             self.wait()
 
-            if self.checkpoint_every_epoch is not None and epoch % self.checkpoint_every_epoch == 0:
+            if self.checkpoint_every_epoch is not None and epoch % self.checkpoint_every_epoch +1 == 0:
                 self.save(self.checkpoint_folder / f'mesh-transformer.ckpt.{epoch}.pt')
 
         self.print('Training complete') 
