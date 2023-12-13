@@ -25,13 +25,14 @@ setup(
     'classifier-free-guidance-pytorch>=0.4.2',
     'einops>=0.7.0',
     'ema-pytorch',
+    'gateloop-transformer>=0.1.1',
     'pytorch-warmup',
     'torch>=2.0',
     'torch_geometric',
     'torchtyping',
+    'tqdm'
     'vector-quantize-pytorch>=1.12.0',
     'x-transformers>=1.26.0',
-    'tqdm'
   ],
   classifiers=[
     'Development Status :: 4 - Beta',

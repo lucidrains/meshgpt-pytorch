@@ -211,3 +211,12 @@ faces_coordinates = transformer.generate(texts = ['a long table'])
     url     = {https://api.semanticscholar.org/CorpusID:247244535}
 }
 ```
+
+```bibtex
+@inproceedings{Katsch2023GateLoopFD,
+    title   = {GateLoop: Fully Data-Controlled Linear Recurrence for Sequence Modeling},
+    author  = {Tobias Katsch},
+    year    = {2023},
+    url     = {https://api.semanticscholar.org/CorpusID:265018962}
+}
+```

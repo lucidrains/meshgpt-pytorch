@@ -41,6 +41,8 @@ from classifier_free_guidance_pytorch import (
 
 from torch_geometric.nn.conv import SAGEConv
 
+from gateloop_transformer import SimpleGateLoopLayer
+
 from tqdm import tqdm
 from packaging import version
 
@@ -57,6 +59,8 @@ def default(v, d):
 def divisible_by(num, den):
     return (num % den) == 0
 
+def is_empty(l):
+    return len(l) == 0
 
 def set_module_requires_grad_(
     module: Module,
@@ -839,6 +843,7 @@ class MeshTransformer(Module):
             ff_glu = True,
             num_mem_kv = 4
         ),
+        fine_pre_gateloop_depth = 2,
         fine_attn_depth = 2,
         fine_attn_dim_head = 32,
         fine_attn_heads = 8,
@@ -905,6 +910,13 @@ class MeshTransformer(Module):
             cross_attn_dim_context = cross_attn_dim_context,
             **attn_kwargs
         )
+
+        # address a weakness in attention
+
+        self.gateloop_layers = ModuleList([])
+
+        for _ in range(fine_pre_gateloop_depth):
+            self.gateloop_layers.append(SimpleGateLoopLayer(dim))
 
         # decoding the vertices, 2-stage hierarchy
 
@@ -1176,9 +1188,20 @@ class MeshTransformer(Module):
         fine_vertex_codes, _ = pack([attended_face_codes, grouped_codes], 'b n * d')
 
         fine_vertex_codes = fine_vertex_codes[..., :-1, :]
-        fine_vertex_codes = rearrange(fine_vertex_codes, 'b nf n d -> (b nf) n d')
+
+        # gateloop layers
+
+        if not is_empty(self.gateloop_layers):
+            fine_vertex_codes = rearrange(fine_vertex_codes, 'b nf n d -> b (nf n) d')
+
+            for gateloop in self.gateloop_layers:
+                fine_vertex_codes = gateloop(fine_vertex_codes) + fine_vertex_codes
+
+            fine_vertex_codes = rearrange(fine_vertex_codes, 'b (nf n) d -> b nf n d', n = num_tokens_per_face)
 
         # fine attention - 2nd stage
+
+        fine_vertex_codes = rearrange(fine_vertex_codes, 'b nf n d -> (b nf) n d')
 
         attended_vertex_codes, fine_cache = self.fine_decoder(
             fine_vertex_codes,
