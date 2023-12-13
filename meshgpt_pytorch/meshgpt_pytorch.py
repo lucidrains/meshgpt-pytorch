@@ -724,6 +724,7 @@ class MeshAutoencoder(Module):
         vertices:       TensorType['b', 'nv', 3, float],
         faces:          TensorType['b', 'nf', 3, int],
         face_edges:     Optional[TensorType['b', 'e', 2, int]] = None,
+        texts: Optional[List[str]] = None,
         return_codes = False,
         return_loss_breakdown = False,
         return_recon_faces = False,
