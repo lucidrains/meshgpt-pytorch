@@ -79,7 +79,8 @@ def derive_face_edges_from_faces(
 
         shared_vertices = rearrange(face, 'i c -> i 1 c 1') == rearrange(face, 'j c -> 1 j 1 c')
         num_shared_vertices = shared_vertices.any(dim = -1).sum(dim = -1)
-        is_neighbor_face = num_shared_vertices >= face_edges_vertices_threshold & face_edge_mask
+
+        is_neighbor_face = (num_shared_vertices >= face_edges_vertices_threshold) & face_edge_mask
 
         if not include_self:
             is_neighbor_face &= num_shared_vertices != 3

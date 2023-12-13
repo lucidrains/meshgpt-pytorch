@@ -541,7 +541,10 @@ class MeshAutoencoder(Module):
         # first handle edges
         # needs to be offset by number of faces for each batch
 
-        face_index_offsets = reduce(face_mask.long(), 'b nf -> b 1 1', 'sum')
+        face_index_offsets = reduce(face_mask.long(), 'b nf -> b', 'sum')
+        face_index_offsets = F.pad(face_index_offsets.cumsum(dim = 0), (1, -1), value = 0)
+        face_index_offsets = rearrange(face_index_offsets, 'b -> b 1 1')
+
         face_edges = face_edges + face_index_offsets
         face_edges = face_edges[face_edges_mask]
         face_edges = rearrange(face_edges, 'be ij -> ij be')
