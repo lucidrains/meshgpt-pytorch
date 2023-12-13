@@ -530,38 +530,38 @@ class MeshAutoencoder(Module):
         face_embed, _ = pack([face_coor_embed, angle_embed, area_embed, normal_embed], 'b nf *')
         face_embed = self.project_in(face_embed)
 
-        face_embed = rearrange(face_embed, 'b nf d -> (b nf) d')
+        # handle variable lengths by using masked_select and masked_scatter
 
-        # handle variable lengths by creating a padding node
-        # padding for edges will refer to this node
+        # first handle edges
+        # needs to be offset by number of faces for each batch
 
-        pad_node_id = face_embed.shape[0]
-        pad_token = torch.zeros((face_embed.shape[-1],), device = device, dtype = face_embed.dtype)
+        face_index_offsets = reduce(face_mask.long(), 'b nf -> b 1 1', 'sum')
+        face_edges = face_edges + face_index_offsets
+        face_edges = face_edges[face_edges_mask]
+        face_edges = rearrange(face_edges, 'be ij -> ij be')
 
-        face_embed, pad_ps = pack([face_embed, pad_token], '* d')
+        # next prepare the face_mask for using masked_select and masked_scatter
 
-        batch_arange = torch.arange(batch, device = device)
-        batch_offset = batch_arange * num_faces
-        batch_offset = rearrange(batch_offset, 'b -> b 1 1')
+        dtype = face_embed.dtype
+        orig_face_embed_shape = face_embed.shape
 
-        face_edges = face_edges.masked_fill(~rearrange(face_edges_mask, 'b e -> b e 1'), pad_node_id)
-        face_edges = rearrange(face_edges, 'b e ij -> ij (b e)')
+        def to_orig_face_embed_shape(flattened_face_embed):
+            zeros = torch.zeros(orig_face_embed_shape, device = device, dtype = dtype)
+            face_mask_with_append_dim = rearrange(face_mask, '... -> ... 1')
+            return zeros.masked_scatter(face_mask_with_append_dim, flattened_face_embed)
+
+        face_embed = face_embed[face_mask]
 
         for maybe_attn, conv in self.encoders:
 
-            if exists(maybe_attn):
-                face_embed, pad_token = unpack(face_embed, pad_ps, '* d')
-                face_embed = rearrange(face_embed, '(b nf) d -> b d nf', b = batch)
-
+            if exists(maybe_attn) and False:
+                face_embed = to_orig_face_embed_shape(face_embed)
                 face_embed = maybe_attn(face_embed, mask = face_mask) + face_embed
-
-                face_embed = rearrange(face_embed, 'b d nf -> (b nf) d')
-                face_embed, _ = pack([face_embed, pad_token], '* d')
+                face_embed = face_embed[face_mask]
 
             face_embed = conv(face_embed, face_edges)
 
-        face_embed = face_embed[:-1] # remove padding node
-        face_embed = rearrange(face_embed, '(b nf) d -> b nf d', b = batch)
+        face_embed = to_orig_face_embed_shape(face_embed)
 
         if not return_face_coordinates:
             return face_embed
