@@ -138,6 +138,7 @@ faces_coordinates = transformer.generate(texts = ['a long table'])
 - [x] hierarchical transformers (using the RQ transformer)
 
 - [ ] fix kv caching for two-staged hierarchical transformer
+- [ ] allow for customization of model dimensions of fine vs coarse attention network
 
 - [ ] make transformer efficient
     - [ ] local attention + sparse global attention
