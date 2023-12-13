@@ -136,18 +136,16 @@ faces_coordinates = transformer.generate(texts = ['a long table'])
     - [x] complete preliminary text conditioning
     - [ ] make sure CFG library can support passing in arguments to the two separate calls when cond scaling (as well as aggregating their outputs)
 - [x] hierarchical transformers (using the RQ transformer)
+- [x] fix caching in simple gateloop layer in other repo
 
 - [ ] fix kv caching for two-staged hierarchical transformer
-- [ ] fix caching in simple gateloop layer in other repo
 - [ ] allow for customization of model dimensions of fine vs coarse attention network
 
 - [ ] make transformer efficient
-    - [ ] local attention + sparse global attention
     - [ ] reversible networks
-    - [ ] hourglass transformer - lukasz kaiser's paper
+    - [ ] local attention + sparse global attention
     - [ ] give mamba a test drive
 
-- [ ] figure out how necessary that batchnorm after the sageconv in autoencoder really is
 - [ ] speculative decoding option
 
 ## Citations
