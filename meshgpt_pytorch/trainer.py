@@ -415,7 +415,7 @@ class MeshAutoencoderTrainer(Module):
             self.wait()
 
             if self.checkpoint_every_epoch is not None and epoch % self.checkpoint_every_epoch+1 == 0:
-                self.save(self.checkpoint_folder / f'mesh-autoencoder.ckpt.{epoch}.pt')
+                self.save(self.checkpoint_folder / f'mesh-autoencoder.ckpt.{epoch+1}.pt')
  
 
         self.print('Training complete') 
@@ -683,7 +683,7 @@ class MeshTransformerTrainer(Module):
             self.wait()
 
             if self.checkpoint_every_epoch is not None and epoch % self.checkpoint_every_epoch +1 == 0:
-                self.save(self.checkpoint_folder / f'mesh-transformer.ckpt.{epoch}.pt')
+                self.save(self.checkpoint_folder / f'mesh-transformer.ckpt.{epoch+1}.pt')
 
         self.print('Training complete') 
         if diplay_graph:
