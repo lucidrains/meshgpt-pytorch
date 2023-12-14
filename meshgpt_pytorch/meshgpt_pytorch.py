@@ -203,8 +203,43 @@ def scatter_mean(
 
 # resnet block
 
+class SqueezeExcite(Module):
+    def __init__(
+        self,
+        dim,
+        reduction_factor = 4,
+        min_dim = 16
+    ):
+        super().__init__()
+        dim_inner = max(dim // reduction_factor, min_dim)
+
+        self.net = nn.Sequential(
+            nn.Linear(dim, dim_inner),
+            nn.SiLU(),
+            nn.Linear(dim_inner, dim),
+            nn.Sigmoid(),
+            Rearrange('b c -> b c 1')
+        )
+
+    def forward(self, x, mask = None):
+        if exists(mask):
+            x = x.masked_fill(~mask, 0.)
+
+            num = reduce(x, 'b c n -> b c', 'sum')
+            den = reduce(mask.float(), 'b 1 n -> b 1', 'sum')
+            avg = num / den.clamp(min = 1e-5)
+        else:
+            avg = reduce(x, 'b c n -> b c', 'mean')
+
+        return x * self.net(avg)
+
 class Block(Module):
-    def __init__(self, dim, groups = 8, dropout = 0.):
+    def __init__(
+        self,
+        dim,
+        groups = 8,
+        dropout = 0.
+    ):
         super().__init__()
         self.proj = nn.Conv1d(dim, dim, 3, padding = 1)
         self.norm = nn.GroupNorm(groups, dim)
@@ -237,7 +272,7 @@ class ResnetBlock(Module):
         super().__init__()
         self.block1 = Block(dim, groups = groups, dropout = dropout)
         self.block2 = Block(dim, groups = groups, dropout = dropout)
-
+        self.excite = SqueezeExcite(dim)
     def forward(
         self,
         x,
@@ -245,6 +280,7 @@ class ResnetBlock(Module):
     ):
         h = self.block1(x, mask = mask)
         h = self.block2(h, mask = mask)
+        h = self.excite(h, mask = mask)
         return h + x
 
 # main classes
