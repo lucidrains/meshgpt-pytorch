@@ -299,6 +299,50 @@ class ResnetBlock(Module):
         h = self.excite(h, mask = mask)
         return h + x
 
+# gateloop layers
+
+class GateLoopBlock(Module):
+    def __init__(
+        self,
+        dim,
+        *,
+        depth,
+    ):
+        super().__init__()
+        self.gateloops = ModuleList([])
+
+        for _ in range(depth):
+            gateloop = SimpleGateLoopLayer(dim = dim)
+            self.gateloops.append(gateloop)
+
+    def forward(
+        self,
+        x,
+        cache = None
+    ):
+        received_cache = exists(cache)
+
+        if is_tensor_empty(x):
+            return x, None
+
+        if received_cache:
+            prev, x = x[:, :-1], x[:, -1:]
+
+        cache = default(cache, [])
+        cache = iter(cache)
+
+        new_caches = []
+        for gateloop in self.gateloops:
+            layer_cache = next(cache, None)
+            out, new_cache = gateloop(x, cache = layer_cache, return_cache = True)
+            new_caches.append(new_cache)
+            x = x + out
+
+        if received_cache:
+            x = torch.cat((prev, x), dim = -2)
+
+        return x, new_caches
+
 # main classes
 
 class MeshAutoencoder(Module):
@@ -878,6 +922,7 @@ class MeshTransformer(Module):
             num_mem_kv = 4
         ),
         dropout = 0.,
+        coarse_pre_gateloop_depth = 2,
         fine_pre_gateloop_depth = 2,
         fine_attn_depth = 2,
         fine_attn_dim_head = 32,
@@ -932,6 +977,8 @@ class MeshTransformer(Module):
             nn.LayerNorm(dim)
         )
 
+        self.coarse_gateloop_block = GateLoopBlock(dim, depth = coarse_pre_gateloop_depth) if coarse_pre_gateloop_depth > 0 else nn.Identity()
+
         # main autoregressive attention network
         # attending to a face token
 
@@ -950,10 +997,7 @@ class MeshTransformer(Module):
 
         # address a weakness in attention
 
-        self.gateloop_layers = ModuleList([])
-
-        for _ in range(fine_pre_gateloop_depth):
-            self.gateloop_layers.append(SimpleGateLoopLayer(dim))
+        self.fine_gateloop_block = GateLoopBlock(dim, depth = fine_pre_gateloop_depth) if fine_pre_gateloop_depth > 0 else nn.Identity()
 
         # decoding the vertices, 2-stage hierarchy
 
@@ -1214,12 +1258,18 @@ class MeshTransformer(Module):
 
         # cache logic
 
+        (
+            cached_attended_face_codes,
+            coarse_cache,
+            fine_cache,
+            coarse_gateloop_cache,
+            fine_gateloop_cache
+        ) = cache if exists(cache) else ((None,) * 5)
+
         if exists(cache):
-            cached_attended_face_codes, coarse_cache, fine_cache = cache
             cached_face_codes_len = cached_attended_face_codes.shape[-2]
             need_call_first_transformer = face_codes_len > cached_face_codes_len
         else:
-            cached_attended_face_codes, coarse_cache, fine_cache = (None, None, None)
             need_call_first_transformer = True
 
         should_cache_fine = not divisible_by(curr_vertex_pos + 1, num_tokens_per_face)
@@ -1227,6 +1277,8 @@ class MeshTransformer(Module):
         # attention on face codes (coarse)
 
         if need_call_first_transformer:
+            face_codes, coarse_gateloop_cache = self.coarse_gateloop_block(face_codes, cache = coarse_gateloop_cache)
+
             attended_face_codes, coarse_cache = self.decoder(
                 face_codes,
                 cache = coarse_cache,
@@ -1251,12 +1303,14 @@ class MeshTransformer(Module):
 
         # gateloop layers
 
-        if not is_empty(self.gateloop_layers):
+        if not isinstance(self.fine_gateloop_block, nn.Identity):
             fine_vertex_codes = rearrange(fine_vertex_codes, 'b nf n d -> b (nf n) d')
+            orig_length = fine_vertex_codes.shape[-2]
+            fine_vertex_codes = fine_vertex_codes[:, :(code_len + 1)]
 
-            for gateloop in self.gateloop_layers:
-                fine_vertex_codes = gateloop(fine_vertex_codes) + fine_vertex_codes
+            fine_vertex_codes, fine_gateloop_cache = self.fine_gateloop_block(fine_vertex_codes, cache = fine_gateloop_cache)
 
+            fine_vertex_codes = pad_to_length(fine_vertex_codes, orig_length, dim = -2)
             fine_vertex_codes = rearrange(fine_vertex_codes, 'b (nf n) d -> b nf n d', n = num_tokens_per_face)
 
         # fine attention - 2nd stage
@@ -1299,7 +1353,9 @@ class MeshTransformer(Module):
             next_cache = (
                 attended_face_codes,
                 coarse_cache,
-                fine_cache
+                fine_cache,
+                coarse_gateloop_cache,
+                fine_gateloop_cache
             )
 
             return logits, next_cache
