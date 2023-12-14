@@ -58,6 +58,9 @@ def exists(v):
 def default(v, d):
     return v if exists(v) else d
 
+def first(it):
+    return it[0]
+
 def divisible_by(num, den):
     return (num % den) == 0
 
@@ -76,6 +79,16 @@ def l1norm(t):
 
 def l2norm(t):
     return F.normalize(t, dim = -1, p = 2)
+
+def safe_cat(tensors, dim):
+    tensors = [*filter(exists, tensors)]
+
+    if len(tensors) == 0:
+        return None
+    elif len(tensors) == 1:
+        return first(tensors)
+
+    return torch.cat(tensors, dim = dim)
 
 def pad_at_dim(t, padding, dim = -1, value = 0):
     ndim = t.ndim
@@ -1008,7 +1021,6 @@ class MeshTransformer(Module):
 
         # for now, kv cache disabled when conditioning on text
 
-        assert not cache_kv, 'caching not available yet'
         can_cache = cache_kv and (not self.condition_on_text or cond_scale == 1.)
 
         cache = None
@@ -1190,27 +1202,41 @@ class MeshTransformer(Module):
         face_codes = rearrange(face_codes, 'b nf n d -> b nf (n d)')
         face_codes = self.to_face_tokens(face_codes)
 
-        # caches
+        face_codes_len = face_codes.shape[-2]
 
-        coarse_cache, fine_cache = cache if exists(cache) else (None, None)
+        # cache logic
+
+        if exists(cache):
+            cached_attended_face_codes, coarse_cache, fine_cache = cache
+
+            cached_face_codes_len = cached_attended_face_codes.shape[-2]
+            need_call_first_transformer = face_codes_len > cached_face_codes_len
+        else:
+            need_call_first_transformer = True
+            cached_attended_face_codes, coarse_cache, fine_cache = (None, None, None)
 
         # attention on face codes (coarse)
 
-        attended_face_codes, coarse_cache = self.decoder(
-            face_codes,
-            cache = coarse_cache,
-            return_hiddens = True,
-            **attn_context_kwargs
-        )
+        if need_call_first_transformer:
+            attended_face_codes, coarse_cache = self.decoder(
+                face_codes,
+                cache = coarse_cache,
+                return_hiddens = True,
+                **attn_context_kwargs
+            )
+
+            attended_face_codes = safe_cat((cached_attended_face_codes, attended_face_codes), dim = -2)
+        else:
+            attended_face_codes = cached_attended_face_codes
 
         # auto prepend sos token
 
         sos = repeat(self.sos_token, 'd -> b d', b = batch)
 
-        attended_face_codes, _ = pack([sos, attended_face_codes], 'b * d')
+        attended_face_codes_with_sos, _ = pack([sos, attended_face_codes], 'b * d')
 
-        grouped_codes = pad_to_length(grouped_codes, attended_face_codes.shape[-2], dim = 1)
-        fine_vertex_codes, _ = pack([attended_face_codes, grouped_codes], 'b n * d')
+        grouped_codes = pad_to_length(grouped_codes, attended_face_codes_with_sos.shape[-2], dim = 1)
+        fine_vertex_codes, _ = pack([attended_face_codes_with_sos, grouped_codes], 'b n * d')
 
         fine_vertex_codes = fine_vertex_codes[..., :-1, :]
 
@@ -1230,7 +1256,7 @@ class MeshTransformer(Module):
 
         attended_vertex_codes, fine_cache = self.fine_decoder(
             fine_vertex_codes,
-            cache = fine_cache,
+            cache = None,
             return_hiddens = True
         )
 
@@ -1247,7 +1273,13 @@ class MeshTransformer(Module):
             if not return_cache:
                 return logits
 
-            return logits, (coarse_cache, fine_cache)
+            next_cache = (
+                attended_face_codes,
+                coarse_cache,
+                fine_cache
+            )
+
+            return logits, next_cache
 
         # loss
 
