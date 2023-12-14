@@ -67,6 +67,9 @@ def divisible_by(num, den):
 def is_empty(l):
     return len(l) == 0
 
+def is_tensor_empty(t: Tensor):
+    return t.numel() == 0
+
 def set_module_requires_grad_(
     module: Module,
     requires_grad: bool
@@ -997,7 +1000,7 @@ class MeshTransformer(Module):
         texts: Optional[List[str]] = None,
         text_embeds: Optional[Tensor] = None,
         cond_scale = 1.,
-        cache_kv = False
+        cache_kv = True
     ):
         if exists(prompt):
             assert not exists(batch_size)
@@ -1188,7 +1191,11 @@ class MeshTransformer(Module):
         # this is similar in design to the RQ transformer from Lee et al. https://arxiv.org/abs/2203.01941
 
         num_tokens_per_face = self.num_quantizers * 3
+
+        curr_vertex_pos = code_len % num_tokens_per_face # the current intra-face vertex-code position id, needed for caching at the fine decoder stage
+
         code_len_is_multiple_of_face = divisible_by(code_len, num_tokens_per_face)
+
         next_multiple_code_len = ceil(code_len / num_tokens_per_face) * num_tokens_per_face
 
         codes = pad_to_length(codes, next_multiple_code_len, dim = -2)
@@ -1209,12 +1216,13 @@ class MeshTransformer(Module):
 
         if exists(cache):
             cached_attended_face_codes, coarse_cache, fine_cache = cache
-
             cached_face_codes_len = cached_attended_face_codes.shape[-2]
             need_call_first_transformer = face_codes_len > cached_face_codes_len
         else:
-            need_call_first_transformer = True
             cached_attended_face_codes, coarse_cache, fine_cache = (None, None, None)
+            need_call_first_transformer = True
+
+        should_cache_fine = not divisible_by(curr_vertex_pos + 1, num_tokens_per_face)
 
         # attention on face codes (coarse)
 
@@ -1253,22 +1261,36 @@ class MeshTransformer(Module):
 
         # fine attention - 2nd stage
 
+        if exists(cache):
+            fine_vertex_codes = fine_vertex_codes[:, -1:]
+
+        one_face = fine_vertex_codes.shape[1] == 1
+
         fine_vertex_codes = rearrange(fine_vertex_codes, 'b nf n d -> (b nf) n d')
+
+        if one_face:
+            fine_vertex_codes = fine_vertex_codes[:, :(curr_vertex_pos + 1)]
 
         attended_vertex_codes, fine_cache = self.fine_decoder(
             fine_vertex_codes,
-            cache = None,
+            cache = fine_cache,
             return_hiddens = True
         )
 
-        # reconstitute original sequence
+        if not should_cache_fine:
+            fine_cache = None
 
-        attended_vertex_codes = rearrange(attended_vertex_codes, '(b nf) n d -> b (nf n) d', b = batch)
-        attended_vertex_codes = attended_vertex_codes[:, :(code_len + 1)]
+        if not one_face:
+            # reconstitute original sequence
+
+            embed = rearrange(attended_vertex_codes, '(b nf) n d -> b (nf n) d', b = batch)
+            embed = embed[:, :(code_len + 1)]
+        else:
+            embed = attended_vertex_codes
 
         # logits
 
-        logits = self.to_logits(attended_vertex_codes)
+        logits = self.to_logits(embed)
 
         if not return_loss:
             if not return_cache:
