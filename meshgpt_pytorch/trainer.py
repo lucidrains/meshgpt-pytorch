@@ -389,7 +389,7 @@ class MeshTransformerTrainer(Module):
         optimizer_kwargs: dict = dict(),
         checkpoint_every = 1000,
         checkpoint_folder = './checkpoints',
-        data_kwargs: Tuple[str, ...] = ['vertices', 'faces', 'face_edges', 'face_len', 'face_edges_len'],
+        data_kwargs: Tuple[str, ...] = ['vertices', 'faces', 'face_edges'],
         warmup_steps = 1000,
         use_wandb_tracking = False
     ):
