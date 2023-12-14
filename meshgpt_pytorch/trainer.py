@@ -435,6 +435,7 @@ class MeshAutoencoderTrainer(Module):
             plt.ylabel('Average Loss')
             plt.grid(True)
             plt.show()
+        return epoch_losses[-1]
 # mesh transformer trainer
 
 class MeshTransformerTrainer(Module):
@@ -701,3 +702,4 @@ class MeshTransformerTrainer(Module):
             plt.ylabel('Average Loss')
             plt.grid(True)
             plt.show()
+        return epoch_losses[-1]
