@@ -190,17 +190,6 @@ faces_coordinates = transformer.generate(texts = ['a long table'])
 ```
 
 ```bibtex
-@misc{elnouby2021xcit,
-    title   = {XCiT: Cross-Covariance Image Transformers},
-    author  = {Alaaeldin El-Nouby and Hugo Touvron and Mathilde Caron and Piotr Bojanowski and Matthijs Douze and Armand Joulin and Ivan Laptev and Natalia Neverova and Gabriel Synnaeve and Jakob Verbeek and Hervé Jegou},
-    year    = {2021},
-    eprint  = {2106.09681},
-    archivePrefix = {arXiv},
-    primaryClass = {cs.CV}
-}
-```
-
-```bibtex
 @article{Lee2022AutoregressiveIG,
     title   = {Autoregressive Image Generation using Residual Quantization},
     author  = {Doyup Lee and Chiheon Kim and Saehoon Kim and Minsu Cho and Wook-Shin Han},

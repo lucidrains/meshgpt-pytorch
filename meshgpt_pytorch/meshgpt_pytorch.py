@@ -26,6 +26,8 @@ from x_transformers.autoregressive_wrapper import (
     top_p,
 )
 
+from local_attention import LocalMHA
+
 from vector_quantize_pytorch import (
     ResidualVQ,
     ResidualLFQ
@@ -241,76 +243,6 @@ class ResnetBlock(Module):
         h = self.block2(h, mask = mask)
         return h + x
 
-# linear attention
-
-class LinearAttention(Module):
-    """
-    using the specific linear attention proposed by El-Nouby et al. (https://arxiv.org/abs/2106.09681)
-    """
-
-    @beartype
-    def __init__(
-        self,
-        dim,
-        *,
-        dim_head = 32,
-        heads = 8,
-        scale = 8,
-        flash = False,
-        dropout = 0.
-    ):
-        super().__init__()
-        dim_inner = dim_head * heads
-
-        self.norm = RMSNorm(dim)
-
-        self.to_qkv = nn.Sequential(
-            nn.Linear(dim, dim_inner * 3, bias = False),
-            Rearrange('b n (qkv h d) -> qkv b h d n', qkv = 3, h = heads)
-        )
-
-        self.temperature = nn.Parameter(torch.ones(heads, 1, 1))
-
-        self.attend = Attend(
-            scale = scale,
-            causal = False,
-            dropout = dropout,
-            flash = flash
-        )
-
-        self.to_out = nn.Sequential(
-            Rearrange('b h d n -> b n (h d)'),
-            nn.Linear(dim_inner, dim)
-        )
-
-    def forward(
-        self,
-        x,
-        mask = None
-    ):
-
-        x = self.norm(x)
-        q, k, v = self.to_qkv(x)
-
-        if exists(mask):
-            mask = rearrange(mask, 'b n -> b 1 1 n')
-            q, k, v = map(lambda t: t.masked_fill(~mask, 0.), (q, k, v))
-
-        q, k = map(l2norm, (q, k))
-        q = q * self.temperature.exp()
-
-        if exists(mask):
-            q, k, v = map(lambda t: t.masked_fill(~mask, 0.), (q, k, v))
-
-        out, *_ = self.attend(q, k, v)
-
-        if exists(mask):
-            out = out.masked_fill(~mask, 0.)
-
-        out = self.to_out(out)
-
-        return out
-
 # main classes
 
 class MeshAutoencoder(Module):
@@ -341,11 +273,12 @@ class MeshAutoencoder(Module):
         ),
         commit_loss_weight = 0.1,
         bin_smooth_blur_sigma = 0.4,  # they blur the one hot discretized coordinate positions
-        linear_attn_depth = 0,
-        linear_attn_kwargs: dict = dict(
+        local_attn_depth = 0,
+        local_attn_kwargs: dict = dict(
             dim_head = 32,
-            heads = 4
+            heads = 8
         ),
+        local_attn_window_size = 128,
         final_encoder_norm = True,
         pad_id = -1,
         flash_attn = True
@@ -436,19 +369,26 @@ class MeshAutoencoder(Module):
             Rearrange('... (v c) -> ... v c', v = 9)
         )
 
-        # linear attention related
+        # local attention related
 
-        self.encoder_linear_attn_blocks = ModuleList([])
-        self.decoder_linear_attn_blocks = ModuleList([])
+        self.encoder_local_attn_blocks = ModuleList([])
+        self.decoder_local_attn_blocks = ModuleList([])
 
-        for _ in range(linear_attn_depth):
-            self.encoder_linear_attn_blocks.append(nn.ModuleList([
-                LinearAttention(dim, **linear_attn_kwargs),
+        attn_kwargs = dict(
+            dim = dim,
+            causal = False,
+            prenorm = True,
+            window_size = local_attn_window_size,
+        )
+
+        for _ in range(local_attn_depth):
+            self.encoder_local_attn_blocks.append(nn.ModuleList([
+                LocalMHA(**attn_kwargs, **local_attn_kwargs),
                 nn.Sequential(RMSNorm(dim), FeedForward(dim, glu = True))
             ]))
 
-            self.decoder_linear_attn_blocks.append(nn.ModuleList([
-                LinearAttention(dim, **linear_attn_kwargs),
+            self.decoder_local_attn_blocks.append(nn.ModuleList([
+                LocalMHA(**attn_kwargs, **local_attn_kwargs),
                 nn.Sequential(RMSNorm(dim), FeedForward(dim, glu = True))
             ]))
 
@@ -570,7 +510,7 @@ class MeshAutoencoder(Module):
         zeros = torch.zeros(orig_face_embed_shape, device = device, dtype = dtype)
         face_embed = zeros.masked_scatter(rearrange(face_mask, '... -> ... 1'), face_embed)
 
-        for attn, ff in self.encoder_linear_attn_blocks:
+        for attn, ff in self.encoder_local_attn_blocks:
             face_embed = attn(face_embed, mask = face_mask) + face_embed
             face_embed = ff(face_embed) + face_embed
 
@@ -669,7 +609,7 @@ class MeshAutoencoder(Module):
 
         x = quantized
 
-        for attn, ff in self.encoder_linear_attn_blocks:
+        for attn, ff in self.encoder_local_attn_blocks:
             x = attn(x, mask = face_mask) + x
             x = ff(x) + x
 
