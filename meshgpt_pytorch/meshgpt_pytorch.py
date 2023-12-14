@@ -1009,9 +1009,9 @@ class MeshTransformer(Module):
         cache = None
 
         for i in tqdm(range(curr_length, self.max_seq_len)):
-            # v1([q1] [q2] [q1] [q2] [q1] [q2]) v2([q1] [q2] [q1] [q2] [q1] [q2]) -> 1 2 3 4 5 6 7 8 9 10 11 12 -> v1(F F F F F T) v2(F F F F F T)
+            # v1([q1] [q2] [q1] [q2] [q1] [q2]) v2([eos| q1] [q2] [q1] [q2] [q1] [q2]) -> 0 1 2 3 4 5 6 7 8 9 10 11 12 -> v1(F F F F F F) v2(T F F F F F) v3(T F F F F F)
 
-            can_eos = divisible_by(i + 1, self.num_quantizers * 3)  # only allow for eos to be decoded at the end of each face, defined as 3 vertices with D residual VQ codes
+            can_eos = i != 0 and divisible_by(i, self.num_quantizers * 3)  # only allow for eos to be decoded at the end of each face, defined as 3 vertices with D residual VQ codes
 
             logits, new_cache = self.forward_on_codes(
                 codes,
