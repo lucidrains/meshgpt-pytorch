@@ -559,7 +559,6 @@ class MeshAutoencoder(Module):
 
         # next prepare the face_mask for using masked_select and masked_scatter
 
-        dtype = face_embed.dtype
         orig_face_embed_shape = face_embed.shape
 
         face_embed = face_embed[face_mask]
@@ -567,8 +566,7 @@ class MeshAutoencoder(Module):
         for conv in self.encoders:
             face_embed = conv(face_embed, face_edges)
 
-        zeros = torch.zeros(orig_face_embed_shape, device = device, dtype = dtype)
-        face_embed = zeros.masked_scatter(rearrange(face_mask, '... -> ... 1'), face_embed)
+        face_embed = face_embed.new_zeros(orig_face_embed_shape).masked_scatter(rearrange(face_mask, '... -> ... 1'), face_embed)
 
         for attn, ff in self.encoder_local_attn_blocks:
             face_embed = attn(face_embed, mask = face_mask) + face_embed
