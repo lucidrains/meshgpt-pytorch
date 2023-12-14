@@ -18,7 +18,7 @@ from einops.layers.torch import Rearrange
 
 from x_transformers import Decoder
 from x_transformers.attend import Attend
-from x_transformers.x_transformers import RMSNorm, LayerIntermediates
+from x_transformers.x_transformers import RMSNorm, FeedForward, LayerIntermediates
 
 from x_transformers.autoregressive_wrapper import (
     eval_decorator,
@@ -286,11 +286,8 @@ class LinearAttention(Module):
     def forward(
         self,
         x,
-        mask = None,
-        channel_first = True
+        mask = None
     ):
-        if channel_first:
-            x = rearrange(x, 'b d n -> b n d')
 
         x = self.norm(x)
         q, k, v = self.to_qkv(x)
@@ -307,10 +304,10 @@ class LinearAttention(Module):
 
         out, *_ = self.attend(q, k, v)
 
-        out = self.to_out(out)
+        if exists(mask):
+            out = out.masked_fill(~mask, 0.)
 
-        if channel_first:
-            out = rearrange(out, 'b n d -> b d n')
+        out = self.to_out(out)
 
         return out
 
@@ -344,11 +341,12 @@ class MeshAutoencoder(Module):
         ),
         commit_loss_weight = 0.1,
         bin_smooth_blur_sigma = 0.4,  # they blur the one hot discretized coordinate positions
-        linear_attention = False,
+        linear_attn_depth = 0,
         linear_attn_kwargs: dict = dict(
             dim_head = 32,
             heads = 4
         ),
+        final_encoder_norm = True,
         pad_id = -1,
         flash_attn = True
     ):
@@ -392,13 +390,11 @@ class MeshAutoencoder(Module):
         self.encoders = ModuleList([])
 
         for _ in range(encoder_depth):
-            attn = LinearAttention(dim, flash = flash_attn, **linear_attn_kwargs) if linear_attention else None
             sage_conv = SAGEConv(dim, dim, **sageconv_kwargs)
 
-            self.encoders.append(ModuleList([
-                attn,
-                sage_conv
-            ]))
+            self.encoders.append(sage_conv)
+
+        self.final_encoder_norm = nn.LayerNorm(dim) if final_encoder_norm else nn.Identity()
 
         self.codebook_size = codebook_size
         self.num_quantizers = num_quantizers
@@ -431,18 +427,30 @@ class MeshAutoencoder(Module):
         self.decoders = ModuleList([])
 
         for _ in range(decoder_depth):
-            attn = LinearAttention(dim, flash = flash_attn, **linear_attn_kwargs) if linear_attention else None
             resnet_block = ResnetBlock(dim)
 
-            self.decoders.append(ModuleList([
-                attn,
-                resnet_block
-            ]))
+            self.decoders.append(resnet_block)
 
         self.to_coor_logits = nn.Sequential(
             nn.Linear(dim, num_discrete_coors * 9),
             Rearrange('... (v c) -> ... v c', v = 9)
         )
+
+        # linear attention related
+
+        self.encoder_linear_attn_blocks = ModuleList([])
+        self.decoder_linear_attn_blocks = ModuleList([])
+
+        for _ in range(linear_attn_depth):
+            self.encoder_linear_attn_blocks.append(nn.ModuleList([
+                LinearAttention(dim, **linear_attn_kwargs),
+                nn.Sequential(RMSNorm(dim), FeedForward(dim, glu = True))
+            ]))
+
+            self.decoder_linear_attn_blocks.append(nn.ModuleList([
+                LinearAttention(dim, **linear_attn_kwargs),
+                nn.Sequential(RMSNorm(dim), FeedForward(dim, glu = True))
+            ]))
 
         # loss related
 
@@ -554,23 +562,19 @@ class MeshAutoencoder(Module):
         dtype = face_embed.dtype
         orig_face_embed_shape = face_embed.shape
 
-        def to_orig_face_embed_shape(flattened_face_embed):
-            zeros = torch.zeros(orig_face_embed_shape, device = device, dtype = dtype)
-            face_mask_with_append_dim = rearrange(face_mask, '... -> ... 1')
-            return zeros.masked_scatter(face_mask_with_append_dim, flattened_face_embed)
-
         face_embed = face_embed[face_mask]
 
-        for maybe_attn, conv in self.encoders:
-
-            if exists(maybe_attn):
-                face_embed = to_orig_face_embed_shape(face_embed)
-                face_embed = maybe_attn(face_embed, mask = face_mask, channel_first = False) + face_embed
-                face_embed = face_embed[face_mask]
-
+        for conv in self.encoders:
             face_embed = conv(face_embed, face_edges)
 
-        face_embed = to_orig_face_embed_shape(face_embed)
+        zeros = torch.zeros(orig_face_embed_shape, device = device, dtype = dtype)
+        face_embed = zeros.masked_scatter(rearrange(face_mask, '... -> ... 1'), face_embed)
+
+        for attn, ff in self.encoder_linear_attn_blocks:
+            face_embed = attn(face_embed, mask = face_mask) + face_embed
+            face_embed = ff(face_embed) + face_embed
+
+        face_embed = self.final_encoder_norm(face_embed)
 
         if not return_face_coordinates:
             return face_embed
@@ -664,12 +668,14 @@ class MeshAutoencoder(Module):
         conv_face_mask = rearrange(face_mask, 'b n -> b 1 n')
 
         x = quantized
+
+        for attn, ff in self.encoder_linear_attn_blocks:
+            x = attn(x, mask = face_mask) + x
+            x = ff(x) + x
+
         x = rearrange(x, 'b n d -> b d n')
 
-        for maybe_attn, resnet_block in self.decoders:
-            if exists(maybe_attn):
-                x = maybe_attn(x, mask = face_mask, channel_first = True) + x
-
+        for resnet_block in self.decoders:
             x = resnet_block(x, mask = conv_face_mask)
 
         return rearrange(x, 'b d n -> b n d')
