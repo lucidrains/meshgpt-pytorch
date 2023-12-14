@@ -397,8 +397,8 @@ class MeshAutoencoderTrainer(Module):
                 
 
                 with self.accelerator.autocast():
-                    loss = self.model(**forward_kwargs)
-                    self.accelerator.backward(loss / self.grad_accum_every)
+                    loss = self.model(vertices = forward_kwargs['vertices'], faces= forward_kwargs['faces'])
+                    self.accelerator.backward(loss)
 
                 if exists(self.max_grad_norm):
                     self.accelerator.clip_grad_norm_(self.model.parameters(), self.max_grad_norm)
