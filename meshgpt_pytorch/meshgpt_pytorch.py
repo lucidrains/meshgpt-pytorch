@@ -1056,7 +1056,6 @@ class MeshTransformer(Module):
             break
 
         if return_codes:
-            codes = codes[:, 1:] # remove sos
             codes = rearrange(codes, 'b (n q) -> b n q', q = self.num_quantizers)
             return codes
 
