@@ -139,8 +139,8 @@ faces_coordinates = transformer.generate(texts = ['a long table'])
 - [x] fix caching in simple gateloop layer in other repo
 - [x] local attention
 - [x] fix kv caching for two-staged hierarchical transformer - 7x faster now, and faster than original non-hierarchical transformer
+- [x] fix caching for gateloop layers
 
-- [ ] fix caching for gateloop layers
 - [ ] allow for customization of model dimensions of fine vs coarse attention network
 
 - [ ] make transformer efficient
