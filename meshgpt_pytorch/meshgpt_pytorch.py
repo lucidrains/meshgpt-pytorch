@@ -203,11 +203,47 @@ def scatter_mean(
 
 # resnet block
 
+class SqueezeExcite(Module):
+    def __init__(
+        self,
+        dim,
+        reduction_factor = 4,
+        min_dim = 16
+    ):
+        super().__init__()
+        dim_inner = max(dim // reduction_factor, min_dim)
+
+        self.net = nn.Sequential(
+            nn.Linear(dim, dim_inner),
+            nn.SiLU(),
+            nn.Linear(dim_inner, dim),
+            nn.Sigmoid(),
+            Rearrange('b c -> b c 1')
+        )
+
+    def forward(self, x, mask = None):
+        if exists(mask):
+            x = x.masked_fill(~mask, 0.)
+
+            num = reduce(x, 'b c n -> b c', 'sum')
+            den = reduce(mask.float(), 'b 1 n -> b 1', 'sum')
+            avg = num / den.clamp(min = 1e-5)
+        else:
+            avg = reduce(x, 'b c n -> b c', 'mean')
+
+        return x * self.net(avg)
+
 class Block(Module):
-    def __init__(self, dim, groups = 8):
+    def __init__(
+        self,
+        dim,
+        groups = 8,
+        dropout = 0.
+    ):
         super().__init__()
         self.proj = nn.Conv1d(dim, dim, 3, padding = 1)
         self.norm = nn.GroupNorm(groups, dim)
+        self.dropout = nn.Dropout(dropout)
         self.act = nn.SiLU()
 
     def forward(self, x, mask = None):
@@ -221,6 +257,8 @@ class Block(Module):
 
         x = self.norm(x)
         x = self.act(x)
+        x = self.dropout(x)
+
         return x
 
 class ResnetBlock(Module):
@@ -228,12 +266,13 @@ class ResnetBlock(Module):
         self,
         dim,
         *,
-        groups = 8
+        groups = 8,
+        dropout = 0.
     ):
         super().__init__()
-        self.block1 = Block(dim, groups = groups)
-        self.block2 = Block(dim, groups = groups)
-
+        self.block1 = Block(dim, groups = groups, dropout = dropout)
+        self.block2 = Block(dim, groups = groups, dropout = dropout)
+        self.excite = SqueezeExcite(dim)
     def forward(
         self,
         x,
@@ -241,6 +280,7 @@ class ResnetBlock(Module):
     ):
         h = self.block1(x, mask = mask)
         h = self.block2(h, mask = mask)
+        h = self.excite(h, mask = mask)
         return h + x
 
 # main classes
@@ -266,6 +306,14 @@ class MeshAutoencoder(Module):
         codebook_size = 16384,        # they use 16k, shared codebook between layers
         use_residual_lfq = True,      # whether to use the latest lookup-free quantization
         rq_kwargs: dict = dict(),
+        rvq_kwargs: dict = dict(
+            kmeans_init = True,
+            threshold_ema_dead_code = 2,
+            quantize_dropout = True,
+            quantize_dropout_cutoff_index = 1,
+            quantize_dropout_multiple_of = 1,
+        ),
+        rlfq_kwargs: dict = dict(),
         rvq_stochastic_sample_codes = True,
         sageconv_kwargs: dict = dict(
             normalize = True,
@@ -281,7 +329,11 @@ class MeshAutoencoder(Module):
         local_attn_window_size = 128,
         final_encoder_norm = True,
         pad_id = -1,
-        flash_attn = True
+        flash_attn = True,
+        sageconv_dropout = 0.,
+        attn_dropout = 0.,
+        ff_dropout = 0.,
+        resnet_dropout = 0
     ):
         super().__init__()
 
@@ -323,7 +375,12 @@ class MeshAutoencoder(Module):
         self.encoders = ModuleList([])
 
         for _ in range(encoder_depth):
-            sage_conv = SAGEConv(dim, dim, **sageconv_kwargs)
+            sage_conv = SAGEConv(
+                dim,
+                dim,
+                sageconv_dropout = sageconv_dropout,
+                **sageconv_kwargs
+            )
 
             self.encoders.append(sage_conv)
 
@@ -340,6 +397,7 @@ class MeshAutoencoder(Module):
                 num_quantizers = num_quantizers,
                 codebook_size = codebook_size,
                 commitment_loss_weight = 1.,
+                **rlfq_kwargs,
                 **rq_kwargs
             )
         else:
@@ -350,6 +408,7 @@ class MeshAutoencoder(Module):
                 shared_codebook = True,
                 commitment_weight = 1.,
                 stochastic_sample_codes = rvq_stochastic_sample_codes,
+                **rvq_kwargs,
                 **rq_kwargs
             )
 
@@ -360,7 +419,7 @@ class MeshAutoencoder(Module):
         self.decoders = ModuleList([])
 
         for _ in range(decoder_depth):
-            resnet_block = ResnetBlock(dim)
+            resnet_block = ResnetBlock(dim, dropout = resnet_dropout)
 
             self.decoders.append(resnet_block)
 
@@ -378,18 +437,19 @@ class MeshAutoencoder(Module):
             dim = dim,
             causal = False,
             prenorm = True,
+            dropout = attn_dropout,
             window_size = local_attn_window_size,
         )
 
         for _ in range(local_attn_depth):
             self.encoder_local_attn_blocks.append(nn.ModuleList([
                 LocalMHA(**attn_kwargs, **local_attn_kwargs),
-                nn.Sequential(RMSNorm(dim), FeedForward(dim, glu = True))
+                nn.Sequential(RMSNorm(dim), FeedForward(dim, glu = True, dropout = ff_dropout))
             ]))
 
             self.decoder_local_attn_blocks.append(nn.ModuleList([
                 LocalMHA(**attn_kwargs, **local_attn_kwargs),
-                nn.Sequential(RMSNorm(dim), FeedForward(dim, glu = True))
+                nn.Sequential(RMSNorm(dim), FeedForward(dim, glu = True, dropout = ff_dropout))
             ]))
 
         # loss related
@@ -499,7 +559,6 @@ class MeshAutoencoder(Module):
 
         # next prepare the face_mask for using masked_select and masked_scatter
 
-        dtype = face_embed.dtype
         orig_face_embed_shape = face_embed.shape
 
         face_embed = face_embed[face_mask]
@@ -507,8 +566,7 @@ class MeshAutoencoder(Module):
         for conv in self.encoders:
             face_embed = conv(face_embed, face_edges)
 
-        zeros = torch.zeros(orig_face_embed_shape, device = device, dtype = dtype)
-        face_embed = zeros.masked_scatter(rearrange(face_mask, '... -> ... 1'), face_embed)
+        face_embed = face_embed.new_zeros(orig_face_embed_shape).masked_scatter(rearrange(face_mask, '... -> ... 1'), face_embed)
 
         for attn, ff in self.encoder_local_attn_blocks:
             face_embed = attn(face_embed, mask = face_mask) + face_embed
@@ -952,9 +1010,9 @@ class MeshTransformer(Module):
         cache = None
 
         for i in tqdm(range(curr_length, self.max_seq_len)):
-            # [sos] v1([q1] [q2] [q1] [q2] [q1] [q2]) v2([q1] [q2] [q1] [q2] [q1] [q2]) -> 0 1 2 3 4 5 6 7 8 9 10 11 12 -> F v1(F F F F F T) v2(F F F F F T)
+            # v1([q1] [q2] [q1] [q2] [q1] [q2]) v2([q1] [q2] [q1] [q2] [q1] [q2]) -> 1 2 3 4 5 6 7 8 9 10 11 12 -> v1(F F F F F T) v2(F F F F F T)
 
-            can_eos = i != 0 and divisible_by(i, self.num_quantizers * 3)  # only allow for eos to be decoded at the end of each face, defined as 3 vertices with D residual VQ codes
+            can_eos = divisible_by(i + 1, self.num_quantizers * 3)  # only allow for eos to be decoded at the end of each face, defined as 3 vertices with D residual VQ codes
 
             logits, new_cache = self.forward_on_codes(
                 codes,
@@ -997,7 +1055,6 @@ class MeshTransformer(Module):
             break
 
         if return_codes:
-            codes = codes[:, 1:] # remove sos
             codes = rearrange(codes, 'b (n q) -> b n q', q = self.num_quantizers)
             return codes
 
