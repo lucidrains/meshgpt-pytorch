@@ -1,6 +1,7 @@
 from pathlib import Path
 
 import torch
+from torch import is_tensor
 from torch.utils.data import Dataset
 from torch.nn.utils.rnn import pad_sequence
 
@@ -96,18 +97,24 @@ def derive_face_edges_from_faces(
 
 # custom collater
 
+def first(it):
+    return it[0]
+
 def custom_collate(data, pad_id = -1):
-    is_dict = isinstance(data[0], dict)
+    is_dict = isinstance(first(data), dict)
 
     if is_dict:
-        keys = data[0].keys()
+        keys = first(data).keys()
         data = [d.values() for d in data]
 
     output = []
 
     for datum in zip(*data):
-        padded = pad_sequence(datum, batch_first = True, padding_value = pad_id)
-        output.append(padded)
+        if is_tensor(first(datum)):
+            padded = pad_sequence(datum, batch_first = True, padding_value = pad_id)
+            output.append(padded)
+        else:
+            datum = list(datum)
 
     output = tuple(output)
 
