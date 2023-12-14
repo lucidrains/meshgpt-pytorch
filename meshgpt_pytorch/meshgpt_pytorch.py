@@ -999,7 +999,7 @@ class MeshTransformer(Module):
         texts: Optional[List[str]] = None,
         text_embeds: Optional[Tensor] = None,
         cond_scale = 1.,
-        cache_kv = False
+        cache_kv = True
     ):
         if exists(prompt):
             assert not exists(batch_size)
