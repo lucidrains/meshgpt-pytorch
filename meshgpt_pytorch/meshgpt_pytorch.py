@@ -221,8 +221,9 @@ class Block(Module):
             x = x.masked_fill(~mask, 0.)
 
         x = self.norm(x)
-        x = self.dropout(x)
         x = self.act(x)
+        x = self.dropout(x)
+
         return x
 
 class ResnetBlock(Module):
