@@ -860,6 +860,7 @@ class MeshTransformer(Module):
             ff_glu = True,
             num_mem_kv = 4
         ),
+        dropout = 0.,
         fine_pre_gateloop_depth = 2,
         fine_attn_depth = 2,
         fine_attn_dim_head = 32,
@@ -923,6 +924,8 @@ class MeshTransformer(Module):
             dim_head = attn_dim_head,
             heads = attn_heads,
             flash_attn = flash_attn,
+            attn_dropout = dropout,
+            ff_dropout = dropout,
             cross_attend = condition_on_text,
             cross_attn_dim_context = cross_attn_dim_context,
             **attn_kwargs
@@ -943,6 +946,8 @@ class MeshTransformer(Module):
             dim_head = attn_dim_head,
             heads = attn_heads,
             flash_attn = flash_attn,
+            attn_dropout = dropout,
+            ff_dropout = dropout,
             **attn_kwargs
         )
 
