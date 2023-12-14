@@ -204,10 +204,11 @@ def scatter_mean(
 # resnet block
 
 class Block(Module):
-    def __init__(self, dim, groups = 8):
+    def __init__(self, dim, groups = 8, dropout = 0.):
         super().__init__()
         self.proj = nn.Conv1d(dim, dim, 3, padding = 1)
         self.norm = nn.GroupNorm(groups, dim)
+        self.dropout = nn.Dropout(dropout)
         self.act = nn.SiLU()
 
     def forward(self, x, mask = None):
@@ -220,6 +221,7 @@ class Block(Module):
             x = x.masked_fill(~mask, 0.)
 
         x = self.norm(x)
+        x = self.dropout(x)
         x = self.act(x)
         return x
 
@@ -228,11 +230,12 @@ class ResnetBlock(Module):
         self,
         dim,
         *,
-        groups = 8
+        groups = 8,
+        dropout = 0.
     ):
         super().__init__()
-        self.block1 = Block(dim, groups = groups)
-        self.block2 = Block(dim, groups = groups)
+        self.block1 = Block(dim, groups = groups, dropout = dropout)
+        self.block2 = Block(dim, groups = groups, dropout = dropout)
 
     def forward(
         self,
@@ -266,6 +269,14 @@ class MeshAutoencoder(Module):
         codebook_size = 16384,        # they use 16k, shared codebook between layers
         use_residual_lfq = True,      # whether to use the latest lookup-free quantization
         rq_kwargs: dict = dict(),
+        rvq_kwargs: dict = dict(
+            kmeans_init = True,
+            threshold_ema_dead_code = 2,
+            quantize_dropout = True,
+            quantize_dropout_cutoff_index = 1,
+            quantize_dropout_multiple_of = 1,
+        ),
+        rlfq_kwargs: dict = dict(),
         rvq_stochastic_sample_codes = True,
         sageconv_kwargs: dict = dict(
             normalize = True,
@@ -281,7 +292,11 @@ class MeshAutoencoder(Module):
         local_attn_window_size = 128,
         final_encoder_norm = True,
         pad_id = -1,
-        flash_attn = True
+        flash_attn = True,
+        sageconv_dropout = 0.,
+        attn_dropout = 0.,
+        ff_dropout = 0.,
+        resnet_dropout = 0
     ):
         super().__init__()
 
@@ -323,7 +338,12 @@ class MeshAutoencoder(Module):
         self.encoders = ModuleList([])
 
         for _ in range(encoder_depth):
-            sage_conv = SAGEConv(dim, dim, **sageconv_kwargs)
+            sage_conv = SAGEConv(
+                dim,
+                dim,
+                sageconv_dropout = sageconv_dropout,
+                **sageconv_kwargs
+            )
 
             self.encoders.append(sage_conv)
 
@@ -340,6 +360,7 @@ class MeshAutoencoder(Module):
                 num_quantizers = num_quantizers,
                 codebook_size = codebook_size,
                 commitment_loss_weight = 1.,
+                **rlfq_kwargs,
                 **rq_kwargs
             )
         else:
@@ -350,6 +371,7 @@ class MeshAutoencoder(Module):
                 shared_codebook = True,
                 commitment_weight = 1.,
                 stochastic_sample_codes = rvq_stochastic_sample_codes,
+                **rvq_kwargs,
                 **rq_kwargs
             )
 
@@ -360,7 +382,7 @@ class MeshAutoencoder(Module):
         self.decoders = ModuleList([])
 
         for _ in range(decoder_depth):
-            resnet_block = ResnetBlock(dim)
+            resnet_block = ResnetBlock(dim, dropout = resnet_dropout)
 
             self.decoders.append(resnet_block)
 
@@ -378,18 +400,19 @@ class MeshAutoencoder(Module):
             dim = dim,
             causal = False,
             prenorm = True,
+            dropout = attn_dropout,
             window_size = local_attn_window_size,
         )
 
         for _ in range(local_attn_depth):
             self.encoder_local_attn_blocks.append(nn.ModuleList([
                 LocalMHA(**attn_kwargs, **local_attn_kwargs),
-                nn.Sequential(RMSNorm(dim), FeedForward(dim, glu = True))
+                nn.Sequential(RMSNorm(dim), FeedForward(dim, glu = True, dropout = ff_dropout))
             ]))
 
             self.decoder_local_attn_blocks.append(nn.ModuleList([
                 LocalMHA(**attn_kwargs, **local_attn_kwargs),
-                nn.Sequential(RMSNorm(dim), FeedForward(dim, glu = True))
+                nn.Sequential(RMSNorm(dim), FeedForward(dim, glu = True, dropout = ff_dropout))
             ]))
 
         # loss related
