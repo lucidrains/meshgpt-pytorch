@@ -73,9 +73,9 @@ loss.backward()
 
 # after much training of transformer, you can now sample novel 3d assets
 
-faces_coordinates = transformer.generate()
+faces_coordinates, face_mask = transformer.generate()
 
-# (batch, num faces, vertices (3), coordinates (3))
+# (batch, num faces, vertices (3), coordinates (3)), (batch, num faces)
 # now post process for the generated 3d asset
 
 ```
