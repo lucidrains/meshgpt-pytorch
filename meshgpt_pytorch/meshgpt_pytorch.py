@@ -664,7 +664,7 @@ class MeshAutoencoder(Module):
         # create pad vertex, due to variable lengthed faces
 
         pad_vertex_id = num_vertices
-        vertices = F.pad(vertices, (0, 0, 0, 1), value = 0.)
+        vertices = pad_at_dim(vertices, (0, 1), dim = -2, value = 0.)
 
         faces = faces.masked_fill(~rearrange(face_mask, 'b n -> b n 1'), pad_vertex_id)
 
