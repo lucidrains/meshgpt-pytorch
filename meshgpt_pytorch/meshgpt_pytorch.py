@@ -13,7 +13,7 @@ from torchtyping import TensorType
 from pytorch_custom_utils import save_load
 
 from beartype import beartype
-from beartype.typing import Union, Tuple, Callable, Optional, List, Dict
+from beartype.typing import Union, Tuple, Callable, Optional, List, Dict, Any
 
 from einops import rearrange, repeat, reduce, pack, unpack
 from einops.layers.torch import Rearrange
@@ -748,9 +748,9 @@ class MeshAutoencoder(Module):
         )
 
         if not return_discrete_codes:
-            return continuous_coors
+            return continuous_coors, face_mask
 
-        return continuous_coors, pred_face_coords
+        return continuous_coors, pred_face_coords, face_mask
 
     @torch.no_grad()
     def tokenize(self, *args, **kwargs):
@@ -1015,7 +1015,8 @@ class MeshTransformer(Module):
         texts: Optional[List[str]] = None,
         text_embeds: Optional[Tensor] = None,
         cond_scale = 1.,
-        cache_kv = True
+        cache_kv = True,
+        face_coords_to_file: Optional[Callable[[Tensor], Any]] = None
     ):
         if exists(prompt):
             assert not exists(batch_size)
@@ -1089,12 +1090,26 @@ class MeshTransformer(Module):
             codes = codes.masked_fill(mask, self.pad_id)
             break
 
+        # remove a potential extra token from eos, if breaked early
+
+        code_len = codes.shape[-1]
+        round_down_code_len = code_len // self.num_quantizers * self.num_quantizers
+        codes = codes[:, :round_down_code_len]
+
+        # early return of raw residual quantizer codes
+
         if return_codes:
             codes = rearrange(codes, 'b (n q) -> b n q', q = self.num_quantizers)
             return codes
 
         self.autoencoder.eval()
-        return self.autoencoder.decode_from_codes_to_faces(codes)
+        face_coords, face_mask = self.autoencoder.decode_from_codes_to_faces(codes)
+
+        if not exists(face_coords_to_file):
+            return face_coords, face_mask
+
+        files = [face_coords_to_file(coords[mask]) for coords, mask in zip(face_coords, face_mask)]
+        return files
 
     def forward(
         self,
