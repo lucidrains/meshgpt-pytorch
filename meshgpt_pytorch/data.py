@@ -116,6 +116,7 @@ def custom_collate(data, pad_id = -1):
             output.append(padded)
         else:
             datum = list(datum)
+            output.append(datum)
 
     output = tuple(output)
 
