@@ -1192,7 +1192,7 @@ class MeshTransformer(Module):
         if append_eos:
             assert exists(codes)
 
-            code_lens = ((codes != self.pad_id).cumsum(dim = -1) == 0).sum(dim = -1)
+            code_lens = ((codes == self.pad_id).cumsum(dim = -1) == 0).sum(dim = -1)
 
             codes = F.pad(codes, (0, 1), value = 0)
 
