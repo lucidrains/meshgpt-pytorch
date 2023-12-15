@@ -111,10 +111,11 @@ def custom_collate(data, pad_id = -1):
 
     for datum in zip(*data):
         if is_tensor(first(datum)):
-            padded = pad_sequence(datum, batch_first = True, padding_value = pad_id)
-            output.append(padded)
+            datum = pad_sequence(datum, batch_first = True, padding_value = pad_id)
         else:
             datum = list(datum)
+
+        output.append(datum)
 
     output = tuple(output)
 
