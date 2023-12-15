@@ -10,6 +10,8 @@ from torch.cuda.amp import autocast
 
 from torchtyping import TensorType
 
+from pytorch_custom_utils import save_load
+
 from beartype import beartype
 from beartype.typing import Union, Tuple, Callable, Optional, List, Dict
 
@@ -46,9 +48,6 @@ from torch_geometric.nn.conv import SAGEConv
 from gateloop_transformer import SimpleGateLoopLayer
 
 from tqdm import tqdm
-from packaging import version
-
-import pickle
 
 # helper functions
 
@@ -345,6 +344,7 @@ class GateLoopBlock(Module):
 
 # main classes
 
+@save_load(version = __version__)
 class MeshAutoencoder(Module):
     @beartype
     def __init__(
@@ -396,13 +396,6 @@ class MeshAutoencoder(Module):
         resnet_dropout = 0
     ):
         super().__init__()
-
-        # autosaving the config
-
-        _locals = locals()
-        _locals.pop('self', None)
-        _locals.pop('__class__', None)
-        self._config = pickle.dumps(_locals)
 
         # main face coordinate embedding
 
@@ -516,35 +509,6 @@ class MeshAutoencoder(Module):
 
         self.commit_loss_weight = commit_loss_weight
         self.bin_smooth_blur_sigma = bin_smooth_blur_sigma
-
-    @classmethod
-    def init_and_load_from(cls, path, strict = True):
-        path = Path(path)
-        assert path.exists()
-        pkg = torch.load(str(path), map_location = 'cpu')
-
-        assert 'config' in pkg, 'model configs were not found in this saved checkpoint'
-
-        if version.parse(__version__) != version.parse(pkg['version']):
-            self.print(f'loading saved mesh autoencoder at version {pkg["version"]}, but current package version is {__version__}')
-
-        config = pickle.loads(pkg['config'])
-        tokenizer = cls(**config)
-
-        tokenizer.load_state_dict(pkg['model'], strict = strict)
-        return tokenizer
-
-    def save(self, path, overwrite = True):
-        path = Path(path)
-        assert overwrite or not path.exists()
-
-        pkg = dict(
-            model = self.state_dict(),
-            config = self._config,
-            version = __version__,
-        )
-
-        torch.save(pkg, str(path))
 
     @beartype
     def encode(
@@ -904,6 +868,7 @@ class MeshAutoencoder(Module):
 
         return recon_faces, total_loss, loss_breakdown
 
+@save_load(version = __version__)
 class MeshTransformer(Module):
     @beartype
     def __init__(
