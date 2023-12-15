@@ -365,13 +365,14 @@ class MeshAutoencoder(Module):
         num_quantizers = 2,           # or 'D' in the paper
         codebook_size = 16384,        # they use 16k, shared codebook between layers
         use_residual_lfq = True,      # whether to use the latest lookup-free quantization
-        rq_kwargs: dict = dict(),
-        rvq_kwargs: dict = dict(
-            kmeans_init = True,
-            threshold_ema_dead_code = 2,
+        rq_kwargs: dict = dict(
             quantize_dropout = True,
             quantize_dropout_cutoff_index = 1,
             quantize_dropout_multiple_of = 1,
+        ),
+        rvq_kwargs: dict = dict(
+            kmeans_init = True,
+            threshold_ema_dead_code = 2,
         ),
         rlfq_kwargs: dict = dict(),
         rvq_stochastic_sample_codes = True,
