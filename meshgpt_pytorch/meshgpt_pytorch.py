@@ -10,8 +10,10 @@ from torch.cuda.amp import autocast
 
 from torchtyping import TensorType
 
+from pytorch_custom_utils import save_load
+
 from beartype import beartype
-from beartype.typing import Tuple, Callable, Optional, List, Dict
+from beartype.typing import Union, Tuple, Callable, Optional, List, Dict
 
 from einops import rearrange, repeat, reduce, pack, unpack
 from einops.layers.torch import Rearrange
@@ -46,9 +48,6 @@ from torch_geometric.nn.conv import SAGEConv
 from gateloop_transformer import SimpleGateLoopLayer
 
 from tqdm import tqdm
-from packaging import version
-
-import pickle
 
 # helper functions
 
@@ -345,6 +344,7 @@ class GateLoopBlock(Module):
 
 # main classes
 
+@save_load(version = __version__)
 class MeshAutoencoder(Module):
     @beartype
     def __init__(
@@ -396,13 +396,6 @@ class MeshAutoencoder(Module):
         resnet_dropout = 0
     ):
         super().__init__()
-
-        # autosaving the config
-
-        _locals = locals()
-        _locals.pop('self', None)
-        _locals.pop('__class__', None)
-        self._config = pickle.dumps(_locals)
 
         # main face coordinate embedding
 
@@ -516,35 +509,6 @@ class MeshAutoencoder(Module):
 
         self.commit_loss_weight = commit_loss_weight
         self.bin_smooth_blur_sigma = bin_smooth_blur_sigma
-
-    @classmethod
-    def init_and_load_from(cls, path, strict = True):
-        path = Path(path)
-        assert path.exists()
-        pkg = torch.load(str(path), map_location = 'cpu')
-
-        assert 'config' in pkg, 'model configs were not found in this saved checkpoint'
-
-        if version.parse(__version__) != version.parse(pkg['version']):
-            self.print(f'loading saved mesh autoencoder at version {pkg["version"]}, but current package version is {__version__}')
-
-        config = pickle.loads(pkg['config'])
-        tokenizer = cls(**config)
-
-        tokenizer.load_state_dict(pkg['model'], strict = strict)
-        return tokenizer
-
-    def save(self, path, overwrite = True):
-        path = Path(path)
-        assert overwrite or not path.exists()
-
-        pkg = dict(
-            model = self.state_dict(),
-            config = self._config,
-            version = __version__,
-        )
-
-        torch.save(pkg, str(path))
 
     @beartype
     def encode(
@@ -664,7 +628,7 @@ class MeshAutoencoder(Module):
         # create pad vertex, due to variable lengthed faces
 
         pad_vertex_id = num_vertices
-        vertices = F.pad(vertices, (0, 0, 0, 1), value = 0.)
+        vertices = pad_at_dim(vertices, (0, 1), dim = -2, value = 0.)
 
         faces = faces.masked_fill(~rearrange(face_mask, 'b n -> b n 1'), pad_vertex_id)
 
@@ -905,13 +869,14 @@ class MeshAutoencoder(Module):
 
         return recon_faces, total_loss, loss_breakdown
 
+@save_load(version = __version__)
 class MeshTransformer(Module):
     @beartype
     def __init__(
         self,
         autoencoder: MeshAutoencoder,
         *,
-        dim = 512,
+        dim: Union[int, Tuple[int, int]] = 512,
         max_seq_len = 8192,
         flash_attn = True,
         attn_depth = 12,
@@ -934,13 +899,15 @@ class MeshTransformer(Module):
     ):
         super().__init__()
 
+        dim, dim_fine = (dim, dim) if isinstance(dim, int) else dim
+
         self.autoencoder = autoencoder
         set_module_requires_grad_(autoencoder, False)
 
         self.codebook_size = autoencoder.codebook_size
         self.num_quantizers = autoencoder.num_quantizers
 
-        self.sos_token = nn.Parameter(torch.randn(dim))
+        self.sos_token = nn.Parameter(torch.randn(dim_fine))
         self.eos_token_id = self.codebook_size
 
         # they use axial positional embeddings
@@ -995,6 +962,10 @@ class MeshTransformer(Module):
             **attn_kwargs
         )
 
+        # projection from coarse to fine, if needed
+
+        self.maybe_project_coarse_to_fine = nn.Linear(dim, dim_fine) if dim != dim_fine else nn.Identity()
+
         # address a weakness in attention
 
         self.fine_gateloop_block = GateLoopBlock(dim, depth = fine_pre_gateloop_depth) if fine_pre_gateloop_depth > 0 else nn.Identity()
@@ -1002,7 +973,7 @@ class MeshTransformer(Module):
         # decoding the vertices, 2-stage hierarchy
 
         self.fine_decoder = Decoder(
-            dim = dim,
+            dim = dim_fine,
             depth = fine_attn_depth,
             dim_head = attn_dim_head,
             heads = attn_heads,
@@ -1014,7 +985,7 @@ class MeshTransformer(Module):
 
         # to logits
 
-        self.to_logits = nn.Linear(dim, self.codebook_size + 1)
+        self.to_logits = nn.Linear(dim_fine, self.codebook_size + 1)
 
         # padding id
         # force the autoencoder to use the same pad_id given in transformer
@@ -1193,7 +1164,7 @@ class MeshTransformer(Module):
         if append_eos:
             assert exists(codes)
 
-            code_lens = ((codes != self.pad_id).cumsum(dim = -1) == 0).sum(dim = -1)
+            code_lens = ((codes == self.pad_id).cumsum(dim = -1) == 0).sum(dim = -1)
 
             codes = F.pad(codes, (0, 1), value = 0)
 
@@ -1289,6 +1260,10 @@ class MeshTransformer(Module):
             attended_face_codes = safe_cat((cached_attended_face_codes, attended_face_codes), dim = -2)
         else:
             attended_face_codes = cached_attended_face_codes
+
+        # maybe project from coarse to fine dimension for hierarchical transformers
+
+        attended_face_codes = self.maybe_project_coarse_to_fine(attended_face_codes)
 
         # auto prepend sos token
 

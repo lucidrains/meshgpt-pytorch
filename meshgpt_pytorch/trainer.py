@@ -323,13 +323,21 @@ class MeshAutoencoderTrainer(Module):
                 forward_kwargs = self.next_data_to_forward_kwargs(dl_iter)
 
                 with self.accelerator.autocast(), maybe_no_sync():
-                    loss = self.model(**forward_kwargs)
 
-                    self.accelerator.backward(loss / self.grad_accum_every)
+                    total_loss, (recon_loss, commit_loss) = self.model(
+                        **forward_kwargs,
+                        return_loss_breakdown = True
+                    )
 
-            self.print(f'loss: {loss.item():.3f}')
+                    self.accelerator.backward(total_loss / self.grad_accum_every)
 
-            self.log(loss = loss.item())
+            self.print(f'recon loss: {recon_loss.item():.3f} | commit loss: {commit_loss.sum().item():.3f}')
+
+            self.log(
+                total_loss = total_loss.item(),
+                commit_loss = commit_loss.sum().item(),
+                recon_loss = recon_loss.item()
+            )
 
             if exists(self.max_grad_norm):
                 self.accelerator.clip_grad_norm_(self.model.parameters(), self.max_grad_norm)
@@ -352,7 +360,8 @@ class MeshAutoencoderTrainer(Module):
             self.wait()
 
             if self.is_main and self.should_validate and divisible_by(step, self.val_every):
-                total_val_loss = 0.
+
+                total_val_recon_loss = 0.
                 self.ema_model.eval()
 
                 num_val_batches = self.val_num_batches * self.grad_accum_every
@@ -362,12 +371,16 @@ class MeshAutoencoderTrainer(Module):
 
                         forward_kwargs = self.next_data_to_forward_kwargs(val_dl_iter)
 
-                        val_loss = self.ema_model(**forward_kwargs)
+                        val_loss, (val_recon_loss, val_commit_loss) = self.ema_model(
+                            **forward_kwargs,
+                            return_loss_breakdown = True
+                        )
 
-                        total_val_loss += (val_loss / num_val_batches)
+                        total_val_recon_loss += (val_recon_loss / num_val_batches)
 
-                self.print(f'valid loss: {total_val_loss:.3f}')
-                self.log(val_loss = total_val_loss, step = step)
+                self.print(f'valid recon loss: {total_val_recon_loss:.3f}')
+
+                self.log(val_loss = total_val_recon_loss)
 
             self.wait()
 
