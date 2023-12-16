@@ -748,6 +748,10 @@ class MeshAutoencoder(Module):
             continuous_range = self.coor_continuous_range
         )
 
+        # mask out with nan
+
+        continuous_coors = continuous_coors.masked_fill(~rearrange(face_mask, 'b nf -> b nf 1 1'), float('nan'))
+
         if not return_discrete_codes:
             return continuous_coors, face_mask
 
