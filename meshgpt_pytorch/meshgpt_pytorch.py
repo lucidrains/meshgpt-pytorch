@@ -365,13 +365,14 @@ class MeshAutoencoder(Module):
         num_quantizers = 2,           # or 'D' in the paper
         codebook_size = 16384,        # they use 16k, shared codebook between layers
         use_residual_lfq = True,      # whether to use the latest lookup-free quantization
-        rq_kwargs: dict = dict(),
-        rvq_kwargs: dict = dict(
-            kmeans_init = True,
-            threshold_ema_dead_code = 2,
+        rq_kwargs: dict = dict(
             quantize_dropout = True,
             quantize_dropout_cutoff_index = 1,
             quantize_dropout_multiple_of = 1,
+        ),
+        rvq_kwargs: dict = dict(
+            kmeans_init = True,
+            threshold_ema_dead_code = 2,
         ),
         rlfq_kwargs: dict = dict(),
         rvq_stochastic_sample_codes = True,
@@ -747,16 +748,43 @@ class MeshAutoencoder(Module):
             continuous_range = self.coor_continuous_range
         )
 
+        # mask out with nan
+
+        continuous_coors = continuous_coors.masked_fill(~rearrange(face_mask, 'b nf -> b nf 1 1'), float('nan'))
+
         if not return_discrete_codes:
             return continuous_coors, face_mask
 
         return continuous_coors, pred_face_coords, face_mask
 
     @torch.no_grad()
-    def tokenize(self, *args, **kwargs):
+    def tokenize(self, vertices, faces, face_edges = None, **kwargs):
         assert 'return_codes' not in kwargs
+
+        inputs = [vertices, faces, face_edges]
+        inputs = [*filter(exists, inputs)]
+        ndims = {i.ndim for i in inputs}
+
+        assert len(ndims) == 1
+        batch_less = first(list(ndims)) == 2
+
+        if batch_less:
+            inputs = [rearrange(i, '... -> 1 ...') for i in inputs]
+
+        input_kwargs = dict(zip(['vertices', 'faces', 'face_edges'], inputs))
+
         self.eval()
-        return self.forward(*args, return_codes = True, **kwargs)
+
+        codes = self.forward(
+            **input_kwargs,
+            return_codes = True,
+            **kwargs
+        )
+
+        if batch_less:
+            codes = rearrange(codes, '1 ... -> ...')
+
+        return codes
 
     @beartype
     def forward(
@@ -798,6 +826,8 @@ class MeshAutoencoder(Module):
 
         if return_codes:
             assert not return_recon_faces, 'cannot return reconstructed faces when just returning raw codes'
+
+            codes = codes.masked_fill(~repeat(face_mask, 'b nf -> b (nf 3) 1'), self.pad_id)
             return codes
 
         decode = self.decode(
@@ -1085,8 +1115,7 @@ class MeshTransformer(Module):
             if not is_eos_codes.any(dim = -1).all():
                 continue
 
-            shifted_is_eos_tokens = F.pad(is_eos_codes, (1, -1))
-            mask = shifted_is_eos_tokens.float().cumsum(dim = -1) >= 1
+            mask = is_eos_codes.float().cumsum(dim = -1) >= 1
             codes = codes.masked_fill(mask, self.pad_id)
             break
 

@@ -6,6 +6,8 @@ Implementation of <a href="https://arxiv.org/abs/2311.15475">MeshGPT</a>, SOTA M
 
 Will also add text conditioning, for eventual text-to-3d asset
 
+Please join <a href="https://discord.gg/xBPBXfcFHd"><img alt="Join us on Discord" src="https://img.shields.io/discord/823813159592001537?color=5865F2&logo=discord&logoColor=white"></a> if you are interested in collaborating with others to replicate this work
+
 ## Appreciation
 
 - <a href="https://stability.ai/">StabilityAI</a>, <a href="https://a16z.com/supporting-the-open-source-ai-community/">A16Z Open Source AI Grant Program</a>, and <a href="https://huggingface.co/">🤗 Huggingface</a> for the generous sponsorships, as well as my other sponsors, for affording me the independence to open source current artificial intelligence research
@@ -102,8 +104,20 @@ loss.backward()
 
 # after much training of transformer, you can now sample novel 3d assets conditioned on text
 
-faces_coordinates = transformer.generate(texts = ['a long table'])
+faces_coordinates, face_mask = transformer.generate(texts = ['a long table'])
 
+```
+
+If you want to tokenize meshes, for use in your multimodal transformer, simply invoke `.tokenize` on your autoencoder (or same method on autoencoder trainer instance for the exponentially smoothed model)
+
+```python
+
+mesh_token_ids = autoencoder.tokenize(
+    vertices = vertices,
+    faces = faces
+)
+
+# (batch, num face vertices, residual quantized layer)
 ```
 
 ## Todo
