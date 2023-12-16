@@ -6,6 +6,7 @@ from torch.utils.data import Dataset
 from torch.nn.utils.rnn import pad_sequence
 
 from einops import rearrange, reduce
+from torch import nn, Tensor
 
 from beartype import beartype
 from beartype.typing import Tuple, Union, Optional, Callable, Dict
@@ -18,35 +19,6 @@ Vertices = TensorType['nv', 3, float]   # 3 coordinates
 Faces = TensorType['nf', 3, int]        # 3 vertices
 
 # dataset
-
-class DatasetFromTransforms(Dataset):
-    @beartype
-    def __init__(
-        self,
-        folder: str,
-        transforms: Dict[str, Callable[[Path], Tuple[Vertices, Faces]]]
-    ):
-        folder = Path(folder)
-        assert folder.exists and folder.is_dir()
-        self.folder = folder
-
-        exts = transforms.keys()
-        self.paths = [p for ext in exts for p in folder.glob(f'**/*.{ext}')]
-
-        print(f'{len(self.paths)} training samples found at {folder}')
-        assert len(self.paths) > 0
-
-        self.transforms = transforms
-
-    def __len__(self):
-        return len(self.paths)
-
-    def __getitem__(self, idx):
-        path = self.paths[idx]
-        ext = path.suffix[1:]
-        fn = self.transforms[ext]
-
-        return fn(path)
 
 # tensor helper functions
 

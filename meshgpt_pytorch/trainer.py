@@ -1,3 +1,5 @@
+import matplotlib.pyplot as plt
+from tqdm import tqdm
 from pathlib import Path
 from functools import partial
 from packaging import version
@@ -23,11 +25,14 @@ from ema_pytorch import EMA
 from meshgpt_pytorch.data import custom_collate
 
 from meshgpt_pytorch.version import __version__
-
+import matplotlib.pyplot as plt
+from tqdm import tqdm
 from meshgpt_pytorch.meshgpt_pytorch import (
     MeshAutoencoder,
     MeshTransformer
 )
+
+import wandb
 
 # constants
 
@@ -126,8 +131,9 @@ class MeshAutoencoderTrainer(Module):
         accelerator_kwargs: dict = dict(),
         optimizer_kwargs: dict = dict(),
         checkpoint_every = 1000,
+        checkpoint_every_epoch: Optional[int] = None,
         checkpoint_folder = './checkpoints',
-        data_kwargs: Tuple[str, ...] = ['vertices', 'faces', 'face_edges'],
+        data_kwargs: Tuple[str, ...] = ['vertices', 'faces', 'face_edges', 'face_len', 'face_edges_len'],
         warmup_steps = 1000,
         use_wandb_tracking = False
     ):
@@ -204,6 +210,7 @@ class MeshAutoencoderTrainer(Module):
         self.num_train_steps = num_train_steps
         self.register_buffer('step', torch.tensor(0))
 
+        self.checkpoint_every_epoch = checkpoint_every_epoch
         self.checkpoint_every = checkpoint_every
         self.checkpoint_folder = Path(checkpoint_folder)
         self.checkpoint_folder.mkdir(exist_ok = True, parents = True)
@@ -349,8 +356,6 @@ class MeshAutoencoderTrainer(Module):
             step += 1
             self.step.add_(1)
 
-            self.wait()
-
             if self.is_main:
                 self.ema_model.update()
 
@@ -388,7 +393,64 @@ class MeshAutoencoderTrainer(Module):
             self.wait()
 
         self.print('training complete')
+    def train(self, num_epochs, diplay_graph = False):
+        epoch_losses = []  # Initialize a list to store epoch losses
+        self.model.train() 
+        for epoch in range(num_epochs): 
+            total_loss = 0.0
+            num_batches = 0
 
+            progress_bar = tqdm(self.dataloader, desc=f'Epoch {epoch + 1}/{num_epochs}') 
+
+            for data in progress_bar: 
+
+                if isinstance(data, tuple): 
+                    forward_kwargs = dict(zip(self.data_kwargs, data))
+
+                elif isinstance(data, dict): 
+                    forward_kwargs = data 
+                
+
+                with self.accelerator.autocast():
+                    loss = self.model(**forward_kwargs)
+                    self.accelerator.backward(loss)
+
+                if exists(self.max_grad_norm):
+                    self.accelerator.clip_grad_norm_(self.model.parameters(), self.max_grad_norm)
+
+                self.optimizer.step()
+                self.optimizer.zero_grad()
+
+                if not self.accelerator.optimizer_step_was_skipped:
+                    with self.warmup.dampening():
+                        self.scheduler.step()
+ 
+                current_loss = loss.item()
+                total_loss += current_loss
+                num_batches += 1
+                progress_bar.set_postfix(loss=current_loss)
+                
+            
+ 
+            avg_epoch_loss = total_loss / num_batches 
+            epoch_losses.append(avg_epoch_loss)
+            self.print(f'Epoch {epoch + 1} average loss: {avg_epoch_loss}')
+            wandb.log({"Average Mesh AutoEncoder Loss": avg_epoch_loss})
+            self.wait()
+
+            if self.checkpoint_every_epoch is not None and epoch != 0 and epoch % self.checkpoint_every_epoch == 0:
+                self.save(self.checkpoint_folder / f'mesh-autoencoder.ckpt.epoch_{epoch}_avg_loss_{avg_epoch_loss:.3f}.pt')
+ 
+
+        self.print('Training complete') 
+        if diplay_graph:
+            plt.figure(figsize=(10, 5))
+            plt.plot(range(1, num_epochs + 1), epoch_losses, marker='o')
+            plt.title('Training Loss Over Epochs')
+            plt.xlabel('Epoch')
+            plt.ylabel('Average Loss')
+            plt.grid(True)
+            plt.show()
 # mesh transformer trainer
 
 class MeshTransformerTrainer(Module):
@@ -408,7 +470,9 @@ class MeshTransformerTrainer(Module):
         ema_kwargs: dict = dict(),
         accelerator_kwargs: dict = dict(),
         optimizer_kwargs: dict = dict(),
-        checkpoint_every = 1000,
+        
+        checkpoint_every = 1000, 
+        checkpoint_every_epoch: Optional[int] = None,
         checkpoint_folder = './checkpoints',
         data_kwargs: Tuple[str, ...] = ['vertices', 'faces', 'face_edges'],
         warmup_steps = 1000,
@@ -472,6 +536,7 @@ class MeshTransformerTrainer(Module):
         self.num_train_steps = num_train_steps
         self.register_buffer('step', torch.tensor(0))
 
+        self.checkpoint_every_epoch = checkpoint_every_epoch
         self.checkpoint_every = checkpoint_every
         self.checkpoint_folder = Path(checkpoint_folder)
         self.checkpoint_folder.mkdir(exist_ok = True, parents = True)
@@ -598,3 +663,58 @@ class MeshTransformerTrainer(Module):
             self.wait()
 
         self.print('training complete')
+        
+    def train(self, num_epochs, diplay_graph = False):
+        epoch_losses = []  # Initialize a list to store epoch losses
+        self.model.train()
+        for epoch in range(num_epochs): 
+            total_loss = 0.0
+            num_batches = 0
+
+            progress_bar = tqdm(self.dataloader, desc=f'Epoch {epoch + 1}/{num_epochs}') 
+
+            for data in progress_bar: 
+
+                if isinstance(data, tuple): 
+                    forward_kwargs = dict(zip(self.data_kwargs, data))
+
+                elif isinstance(data, dict): 
+                    forward_kwargs = data 
+                
+
+                with self.accelerator.autocast():
+                    loss = self.model(**forward_kwargs)
+                    self.accelerator.backward(loss)
+
+                if exists(self.max_grad_norm):
+                    self.accelerator.clip_grad_norm_(self.model.parameters(), self.max_grad_norm)
+
+                self.optimizer.step()
+                self.optimizer.zero_grad()
+
+                if not self.accelerator.optimizer_step_was_skipped:
+                    with self.warmup.dampening():
+                        self.scheduler.step()
+ 
+                current_loss = loss.item()
+                total_loss += current_loss
+                num_batches += 1
+                progress_bar.set_postfix(loss=current_loss)
+ 
+            avg_epoch_loss = total_loss / num_batches 
+            epoch_losses.append(avg_epoch_loss)
+            self.print(f'Epoch {epoch + 1} average loss: {avg_epoch_loss}')
+            wandb.log({"Average Mesh Transformer Loss": avg_epoch_loss})
+            self.wait() 
+            if self.checkpoint_every_epoch is not None and epoch != 0 and epoch % self.checkpoint_every_epoch == 0:
+                self.save(self.checkpoint_folder / f'mesh-transformer.ckpt.epoch_{epoch}_avg_loss_{avg_epoch_loss:.3f}.pt')
+                
+        self.print('Training complete') 
+        if diplay_graph:
+            plt.figure(figsize=(10, 5))
+            plt.plot(range(1, num_epochs + 1), epoch_losses, marker='o')
+            plt.title('Training Loss Over Epochs')
+            plt.xlabel('Epoch')
+            plt.ylabel('Average Mesh Transformer Loss')
+            plt.grid(True)
+            plt.show()

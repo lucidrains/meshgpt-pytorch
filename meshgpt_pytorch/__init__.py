@@ -7,7 +7,3 @@ from meshgpt_pytorch.trainer import (
     MeshAutoencoderTrainer,
     MeshTransformerTrainer
 )
-
-from meshgpt_pytorch.data import (
-    DatasetFromTransforms
-)
