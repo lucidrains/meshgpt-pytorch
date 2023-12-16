@@ -106,6 +106,18 @@ faces_coordinates, face_mask = transformer.generate(texts = ['a long table'])
 
 ```
 
+If you want to tokenize meshes, for use in your multimodal transformer, simply invoke `.tokenize` on your autoencoder (or same method on autoencoder trainer instance for the exponentially smoothed model)
+
+```python
+
+mesh_token_ids = autoencoder.tokenize(
+    vertices = vertices,
+    faces = faces
+)
+
+# (batch, num face vertices, residual quantized layer)
+```
+
 ## Todo
 
 - [x] autoencoder

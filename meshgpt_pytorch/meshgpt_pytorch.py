@@ -754,10 +754,33 @@ class MeshAutoencoder(Module):
         return continuous_coors, pred_face_coords, face_mask
 
     @torch.no_grad()
-    def tokenize(self, *args, **kwargs):
+    def tokenize(self, vertices, faces, face_edges = None, **kwargs):
         assert 'return_codes' not in kwargs
+
+        inputs = [vertices, faces, face_edges]
+        inputs = [*filter(exists, inputs)]
+        ndims = {i.ndim for i in inputs}
+
+        assert len(ndims) == 1
+        batch_less = first(list(ndims)) == 2
+
+        if batch_less:
+            inputs = [rearrange(i, '... -> 1 ...') for i in inputs]
+
+        input_kwargs = dict(zip(['vertices', 'faces', 'face_edges'], inputs))
+
         self.eval()
-        return self.forward(*args, return_codes = True, **kwargs)
+
+        codes = self.forward(
+            **input_kwargs,
+            return_codes = True,
+            **kwargs
+        )
+
+        if batch_less:
+            codes = rearrange(codes, '1 ... -> ...')
+
+        return codes
 
     @beartype
     def forward(
