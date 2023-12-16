@@ -102,7 +102,7 @@ loss.backward()
 
 # after much training of transformer, you can now sample novel 3d assets conditioned on text
 
-faces_coordinates = transformer.generate(texts = ['a long table'])
+faces_coordinates, face_mask = transformer.generate(texts = ['a long table'])
 
 ```
 
