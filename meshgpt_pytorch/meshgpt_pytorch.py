@@ -1085,8 +1085,7 @@ class MeshTransformer(Module):
             if not is_eos_codes.any(dim = -1).all():
                 continue
 
-            shifted_is_eos_tokens = F.pad(is_eos_codes, (1, -1))
-            mask = shifted_is_eos_tokens.float().cumsum(dim = -1) >= 1
+            mask = is_eos_codes.float().cumsum(dim = -1) >= 1
             codes = codes.masked_fill(mask, self.pad_id)
             break
 
