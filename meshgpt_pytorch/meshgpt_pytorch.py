@@ -825,6 +825,8 @@ class MeshAutoencoder(Module):
 
         if return_codes:
             assert not return_recon_faces, 'cannot return reconstructed faces when just returning raw codes'
+
+            codes = codes.masked_fill(~repeat(face_mask, 'b nf -> b (nf 3) 1'), self.pad_id)
             return codes
 
         decode = self.decode(
