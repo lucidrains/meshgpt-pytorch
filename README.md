@@ -16,6 +16,8 @@ Please join <a href="https://discord.gg/xBPBXfcFHd"><img alt="Join us on Discord
 
 - <a href="https://github.com/MarcusLoppe">Marcus</a> for the initial code review (pointing out some missing derived features) as well as running the first successful end-to-end experiments
 
+- <a href="https://github.com/MarcusLoppe">Marcus</a> for the <a href="https://github.com/lucidrains/meshgpt-pytorch/issues/18#issuecomment-1859214710">first successful training</a> of a collection of shapes conditioned on labels
+
 ## Install
 
 ```bash
@@ -131,6 +133,7 @@ mesh_token_ids = autoencoder.tokenize(
     - [x] xcit linear attention in encoder and decoder
     - [x] figure out how to auto-derive `face_edges` directly from faces and vertices
     - [x] embed any derived values (area, angles, etc) from the vertices before sage convs
+    - [ ] add an extra graph conv stage in the encoder, where vertices are enriched with their connected vertex neighbors, before aggregating into faces. make optional
 
 - [ ] transformer
     - [x] properly mask out eos logit during generation

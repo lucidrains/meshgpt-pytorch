@@ -469,6 +469,9 @@ class MeshTransformerTrainer(Module):
         learning_rate: float = 2e-4,
         weight_decay: float = 0.,
         max_grad_norm: Optional[float] = 0.5,
+        val_dataset: Optional[Dataset] = None,
+        val_every = 1,
+        val_num_batches = 5,
         scheduler: Optional[Type[LRScheduler]] = None,
         scheduler_kwargs: dict = dict(),
         ema_kwargs: dict = dict(),
@@ -478,7 +481,7 @@ class MeshTransformerTrainer(Module):
         checkpoint_every = 1000, 
         checkpoint_every_epoch: Optional[int] = None,
         checkpoint_folder = './checkpoints',
-        data_kwargs: Tuple[str, ...] = ['vertices', 'faces', 'face_edges'],
+        data_kwargs: Tuple[str, ...] = ['vertices', 'faces', 'face_edges', 'text'],
         warmup_steps = 1000,
         use_wandb_tracking = False
     ):
@@ -520,6 +523,22 @@ class MeshTransformerTrainer(Module):
             drop_last = True,
             collate_fn = partial(custom_collate, pad_id = model.pad_id)
         )
+
+        self.should_validate = exists(val_dataset)
+
+        if self.should_validate:
+            assert len(val_dataset) > 0, 'your validation dataset is empty'
+
+            self.val_every = val_every
+            self.val_num_batches = val_num_batches
+
+            self.val_dataloader = DataLoader(
+                val_dataset,
+                batch_size = batch_size,
+                shuffle = True,
+                drop_last = True,
+                collate_fn = partial(custom_collate, pad_id = model.pad_id)
+            )
 
         self.data_kwargs = data_kwargs
 
@@ -588,6 +607,17 @@ class MeshTransformerTrainer(Module):
     def print(self, msg):
         return self.accelerator.print(msg)
 
+    def next_data_to_forward_kwargs(self, dl_iter) -> dict:
+        data = next(dl_iter)
+
+        if isinstance(data, tuple):
+            forward_kwargs = dict(zip(self.data_kwargs, data))
+
+        elif isinstance(data, dict):
+            forward_kwargs = data
+
+        return forward_kwargs
+
     def save(self, path, overwrite = True):
         path = Path(path)
         assert overwrite or not path.exists()
@@ -622,19 +652,16 @@ class MeshTransformerTrainer(Module):
         step = self.step.item()
         dl_iter = cycle(self.dataloader)
 
+        if self.should_validate:
+            val_dl_iter = cycle(self.val_dataloader)
+
         while step < self.num_train_steps:
 
             for i in range(self.grad_accum_every):
                 is_last = i == (self.grad_accum_every - 1)
                 maybe_no_sync = partial(self.accelerator.no_sync, self.model) if not is_last else nullcontext
 
-                data = next(dl_iter)
-
-                if isinstance(data, tuple):
-                    forward_kwargs = dict(zip(self.data_kwargs, data))
-
-                elif isinstance(data, dict):
-                    forward_kwargs = data
+                forward_kwargs = self.next_data_to_forward_kwargs(dl_iter)
 
                 with self.accelerator.autocast(), maybe_no_sync():
                     loss = self.model(**forward_kwargs)
@@ -660,6 +687,28 @@ class MeshTransformerTrainer(Module):
 
             self.wait()
 
+            if self.is_main and self.should_validate and divisible_by(step, self.val_every):
+
+                total_val_loss = 0.
+                self.unwrapped_model.eval()
+
+                num_val_batches = self.val_num_batches * self.grad_accum_every
+
+                for _ in range(num_val_batches):
+                    with self.accelerator.autocast(), torch.no_grad():
+
+                        forward_kwargs = self.next_data_to_forward_kwargs(val_dl_iter)
+
+                        val_loss = self.unwrapped_model(**forward_kwargs)
+
+                        total_val_loss += (val_loss / num_val_batches)
+
+                self.print(f'valid recon loss: {total_val_loss:.3f}')
+
+                self.log(val_loss = total_val_loss)
+
+            self.wait()
+
             if self.is_main and divisible_by(step, self.checkpoint_every):
                 checkpoint_num = step // self.checkpoint_every
                 self.save(self.checkpoint_folder / f'mesh-transformer.ckpt.{checkpoint_num}.pt')
@@ -667,6 +716,7 @@ class MeshTransformerTrainer(Module):
             self.wait()
 
         self.print('training complete')
+ 
         
     def train(self, num_epochs, stop_at_loss = None,  diplay_graph = False):
         epoch_losses = []  # Initialize a list to store epoch losses
@@ -728,3 +778,4 @@ class MeshTransformerTrainer(Module):
             plt.grid(True)
             plt.show()
         return epoch_losses[-1]
+ 
