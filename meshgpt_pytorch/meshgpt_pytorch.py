@@ -382,7 +382,8 @@ class MeshAutoencoder(Module):
         ),
         commit_loss_weight = 0.1,
         bin_smooth_blur_sigma = 0.4,  # they blur the one hot discretized coordinate positions
-        local_attn_depth = 0,
+        local_attn_encoder_depth = 0,
+        local_attn_decoder_depth = 0,
         local_attn_kwargs: dict = dict(
             dim_head = 32,
             heads = 8
@@ -495,12 +496,13 @@ class MeshAutoencoder(Module):
             window_size = local_attn_window_size,
         )
 
-        for _ in range(local_attn_depth):
+        for _ in range(local_attn_encoder_depth):
             self.encoder_local_attn_blocks.append(nn.ModuleList([
                 LocalMHA(**attn_kwargs, **local_attn_kwargs),
                 nn.Sequential(RMSNorm(dim), FeedForward(dim, glu = True, dropout = ff_dropout))
             ]))
 
+        for _ in range(local_attn_decoder_depth):
             self.decoder_local_attn_blocks.append(nn.ModuleList([
                 LocalMHA(**attn_kwargs, **local_attn_kwargs),
                 nn.Sequential(RMSNorm(dim), FeedForward(dim, glu = True, dropout = ff_dropout))
