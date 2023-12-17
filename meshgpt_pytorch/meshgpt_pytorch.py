@@ -1027,8 +1027,19 @@ class MeshTransformer(Module):
         return next(self.parameters()).device
 
     @beartype
-    def embed_texts(self, texts: List[str]):
-        return self.conditioner.embed_texts(texts)
+    @torch.no_grad()
+    def embed_texts(self, texts: Union[str, List[str]]):
+        single_text = not isinstance(texts, list)
+        if single_text:
+            texts = [texts]
+
+        assert exists(self.conditioner)
+        text_embeds = self.conditioner.embed_texts(texts).detach()
+
+        if single_text:
+            text_embeds = text_embeds[0]
+
+        return text_embeds
 
     @eval_decorator
     @torch.no_grad()
