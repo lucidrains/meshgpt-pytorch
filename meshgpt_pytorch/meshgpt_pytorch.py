@@ -1090,18 +1090,20 @@ class MeshTransformer(Module):
 
             can_eos = i != 0 and divisible_by(i, self.num_quantizers * 3)  # only allow for eos to be decoded at the end of each face, defined as 3 vertices with D residual VQ codes
 
-            logits, new_cache = self.forward_on_codes(
+            output = self.forward_on_codes(
                 codes,
                 cache = cache,
                 text_embeds = text_embeds,
                 return_loss = False,
-                return_cache = True,
+                return_cache = can_cache,
                 append_eos = False,
                 cond_scale = cond_scale
             )
 
             if can_cache:
-                cache = new_cache
+                logits, cache = output
+            else:
+                logits = output
 
             logits = logits[:, -1]
 
