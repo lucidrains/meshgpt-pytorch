@@ -37,9 +37,6 @@ from meshgpt_pytorch import (
 # autoencoder
 
 autoencoder = MeshAutoencoder(
-    dim = 512,
-    encoder_depth = 6,
-    decoder_depth = 6,
     num_discrete_coors = 128
 )
 
