@@ -63,6 +63,9 @@ def first(it):
 def divisible_by(num, den):
     return (num % den) == 0
 
+def is_odd(n):
+    return not divisible_by(n, 2)
+
 def is_empty(l):
     return len(l) == 0
 
@@ -252,12 +255,15 @@ class Block(Module):
     def __init__(
         self,
         dim,
+        dim_out = None,
         groups = 8,
         dropout = 0.
     ):
         super().__init__()
-        self.proj = nn.Conv1d(dim, dim, 3, padding = 1)
-        self.norm = nn.GroupNorm(groups, dim)
+        dim_out = default(dim_out, dim)
+
+        self.proj = nn.Conv1d(dim, dim_out, 3, padding = 1)
+        self.norm = nn.GroupNorm(groups, dim_out)
         self.dropout = nn.Dropout(dropout)
         self.act = nn.SiLU()
 
@@ -280,23 +286,28 @@ class ResnetBlock(Module):
     def __init__(
         self,
         dim,
+        dim_out = None,
         *,
         groups = 8,
         dropout = 0.
     ):
         super().__init__()
-        self.block1 = Block(dim, groups = groups, dropout = dropout)
-        self.block2 = Block(dim, groups = groups, dropout = dropout)
-        self.excite = SqueezeExcite(dim)
+        dim_out = default(dim_out, dim)
+        self.block1 = Block(dim, dim_out, groups = groups, dropout = dropout)
+        self.block2 = Block(dim_out, dim_out, groups = groups, dropout = dropout)
+        self.excite = SqueezeExcite(dim_out)
+        self.residual_conv = nn.Conv1d(dim, dim_out, 1) if dim != dim_out else nn.Identity()
+
     def forward(
         self,
         x,
         mask = None
     ):
+        res = self.residual_conv(x)
         h = self.block1(x, mask = mask)
         h = self.block2(h, mask = mask)
         h = self.excite(h, mask = mask)
-        return h + x
+        return h + res
 
 # gateloop layers
 
@@ -349,7 +360,6 @@ class MeshAutoencoder(Module):
     @beartype
     def __init__(
         self,
-        dim,
         num_discrete_coors = 128,
         coor_continuous_range: Tuple[float, float] = (-1., 1.),
         dim_coor_embed = 64,
@@ -359,8 +369,16 @@ class MeshAutoencoder(Module):
         dim_normal_embed = 64,
         num_discrete_angle = 128,
         dim_angle_embed = 16,
-        encoder_depth = 2,
-        decoder_depth = 2,
+        encoder_dims_through_depth: Tuple[int, ...] = (
+            64, 128, 256, 256, 576
+        ),
+        init_decoder_conv_kernel = 7,
+        decoder_dims_through_depth: Tuple[int, ...] = (
+            128, 128, 128, 128,
+            192, 192, 912, 192,
+            256, 256, 256, 256, 256, 256,
+            384, 384, 384
+        ),
         dim_codebook = 192,
         num_quantizers = 2,           # or 'D' in the paper
         codebook_size = 16384,        # they use 16k, shared codebook between layers
@@ -388,8 +406,7 @@ class MeshAutoencoder(Module):
             dim_head = 32,
             heads = 8
         ),
-        local_attn_window_size = 128,
-        final_encoder_norm = True,
+        local_attn_window_size = 64,
         pad_id = -1,
         flash_attn = True,
         sageconv_dropout = 0.,
@@ -419,32 +436,63 @@ class MeshAutoencoder(Module):
         self.discretize_normals = partial(discretize, num_discrete = num_discrete_normals, continuous_range = coor_continuous_range)
         self.normal_embed = nn.Embedding(num_discrete_normals, dim_normal_embed)
 
+        # attention related
+
+        attn_kwargs = dict(
+            causal = False,
+            prenorm = True,
+            dropout = attn_dropout,
+            window_size = local_attn_window_size,
+        )
+
         # initial dimension
 
         init_dim = dim_coor_embed * 9 + dim_angle_embed * 3 + dim_normal_embed * 3 + dim_area_embed
 
         # project into model dimension
 
-        self.project_in = nn.Linear(init_dim, dim)
+        self.project_in = nn.Linear(init_dim, dim_codebook)
+
+        # initial sage conv
+
+        sageconv_kwargs = {**sageconv_kwargs, 'sageconv_dropout' : sageconv_dropout}
+
+        init_encoder_dim, *encoder_dims_through_depth = encoder_dims_through_depth
+        curr_dim = init_encoder_dim
+
+        self.init_sage_conv = SAGEConv(dim_codebook, init_encoder_dim, **sageconv_kwargs)
+
+        self.init_encoder_act_and_norm = nn.Sequential(
+            nn.SiLU(),
+            nn.LayerNorm(init_encoder_dim)
+        )
 
         self.encoders = ModuleList([])
 
-        for _ in range(encoder_depth):
+        for dim_layer in encoder_dims_through_depth:
             sage_conv = SAGEConv(
-                dim,
-                dim,
-                sageconv_dropout = sageconv_dropout,
+                curr_dim,
+                dim_layer,
                 **sageconv_kwargs
             )
 
             self.encoders.append(sage_conv)
+            curr_dim = dim_layer
 
-        self.final_encoder_norm = nn.LayerNorm(dim) if final_encoder_norm else nn.Identity()
+        self.encoder_local_attn_blocks = ModuleList([])
+
+        for _ in range(local_attn_encoder_depth):
+            self.encoder_local_attn_blocks.append(nn.ModuleList([
+                LocalMHA(dim = dim, **attn_kwargs, **local_attn_kwargs),
+                nn.Sequential(RMSNorm(curr_dim), FeedForward(curr_dim, glu = True, dropout = ff_dropout))
+            ]))
+
+        # residual quantization
 
         self.codebook_size = codebook_size
         self.num_quantizers = num_quantizers
 
-        self.project_dim_codebook = nn.Linear(dim, dim_codebook * 3)
+        self.project_dim_codebook = nn.Linear(curr_dim, dim_codebook * 3)
 
         if use_residual_lfq:
             self.quantizer = ResidualLFQ(
@@ -469,44 +517,43 @@ class MeshAutoencoder(Module):
 
         self.pad_id = pad_id # for variable lengthed faces, padding quantized ids will be set to this value
 
-        self.project_codebook_out = nn.Linear(dim_codebook * 3, dim)
+        # decoder
 
-        self.decoders = ModuleList([])
+        decoder_input_dim = dim_codebook * 3
 
-        for _ in range(decoder_depth):
-            resnet_block = ResnetBlock(dim, dropout = resnet_dropout)
-
-            self.decoders.append(resnet_block)
-
-        self.to_coor_logits = nn.Sequential(
-            nn.Linear(dim, num_discrete_coors * 9),
-            Rearrange('... (v c) -> ... v c', v = 9)
-        )
-
-        # local attention related
-
-        self.encoder_local_attn_blocks = ModuleList([])
         self.decoder_local_attn_blocks = ModuleList([])
-
-        attn_kwargs = dict(
-            dim = dim,
-            causal = False,
-            prenorm = True,
-            dropout = attn_dropout,
-            window_size = local_attn_window_size,
-        )
-
-        for _ in range(local_attn_encoder_depth):
-            self.encoder_local_attn_blocks.append(nn.ModuleList([
-                LocalMHA(**attn_kwargs, **local_attn_kwargs),
-                nn.Sequential(RMSNorm(dim), FeedForward(dim, glu = True, dropout = ff_dropout))
-            ]))
 
         for _ in range(local_attn_decoder_depth):
             self.decoder_local_attn_blocks.append(nn.ModuleList([
-                LocalMHA(**attn_kwargs, **local_attn_kwargs),
-                nn.Sequential(RMSNorm(dim), FeedForward(dim, glu = True, dropout = ff_dropout))
+                LocalMHA(dim = decoder_input_dim, **attn_kwargs, **local_attn_kwargs),
+                nn.Sequential(RMSNorm(decoder_input_dim), FeedForward(decoder_input_dim, glu = True, dropout = ff_dropout))
             ]))
+
+        init_decoder_dim, *decoder_dims_through_depth = decoder_dims_through_depth
+        curr_dim = init_decoder_dim
+
+        assert is_odd(init_decoder_conv_kernel)
+
+        self.init_decoder_conv = nn.Sequential(
+            nn.Conv1d(dim_codebook * 3, init_decoder_dim, kernel_size = init_decoder_conv_kernel, padding = init_decoder_conv_kernel // 2),
+            nn.SiLU(),
+            Rearrange('b c n -> b n c'),
+            nn.LayerNorm(init_decoder_dim),
+            Rearrange('b n c -> b c n')
+        )
+
+        self.decoders = ModuleList([])
+
+        for dim_layer in decoder_dims_through_depth:
+            resnet_block = ResnetBlock(curr_dim, dim_layer, dropout = resnet_dropout)
+
+            self.decoders.append(resnet_block)
+            curr_dim = dim_layer
+
+        self.to_coor_logits = nn.Sequential(
+            nn.Linear(curr_dim, num_discrete_coors * 9),
+            Rearrange('... (v c) -> ... v c', v = 9)
+        )
 
         # loss related
 
@@ -586,20 +633,26 @@ class MeshAutoencoder(Module):
 
         # next prepare the face_mask for using masked_select and masked_scatter
 
-        orig_face_embed_shape = face_embed.shape
+        orig_face_embed_shape = face_embed.shape[:2]
 
         face_embed = face_embed[face_mask]
+
+        # initial sage conv followed by activation and norm
+
+        face_embed = self.init_sage_conv(face_embed, face_edges)
+
+        face_embed = self.init_encoder_act_and_norm(face_embed)
 
         for conv in self.encoders:
             face_embed = conv(face_embed, face_edges)
 
-        face_embed = face_embed.new_zeros(orig_face_embed_shape).masked_scatter(rearrange(face_mask, '... -> ... 1'), face_embed)
+        shape = (*orig_face_embed_shape, face_embed.shape[-1])
+
+        face_embed = face_embed.new_zeros(shape).masked_scatter(rearrange(face_mask, '... -> ... 1'), face_embed)
 
         for attn, ff in self.encoder_local_attn_blocks:
             face_embed = attn(face_embed, mask = face_mask) + face_embed
             face_embed = ff(face_embed) + face_embed
-
-        face_embed = self.final_encoder_norm(face_embed)
 
         if not return_face_coordinates:
             return face_embed
@@ -667,8 +720,6 @@ class MeshAutoencoder(Module):
         face_embed_output = quantized.gather(-2, faces_with_dim)
         face_embed_output = rearrange(face_embed_output, 'b (nf nv) d -> b nf (nv d)', nv = 3)
 
-        face_embed_output = self.project_codebook_out(face_embed_output)
-
         # vertex codes also need to be gathered to be organized by face sequence
         # for autoregressive learning
 
@@ -694,11 +745,14 @@ class MeshAutoencoder(Module):
 
         x = quantized
 
-        for attn, ff in self.encoder_local_attn_blocks:
+        for attn, ff in self.decoder_local_attn_blocks:
             x = attn(x, mask = face_mask) + x
             x = ff(x) + x
 
         x = rearrange(x, 'b n d -> b d n')
+
+        x = x.masked_fill(~conv_face_mask, 0.)
+        x = self.init_decoder_conv(x)
 
         for resnet_block in self.decoders:
             x = resnet_block(x, mask = conv_face_mask)
@@ -727,11 +781,8 @@ class MeshAutoencoder(Module):
         quantized = self.quantizer.get_output_from_indices(codes)
         quantized = rearrange(quantized, 'b (nf nv) d -> b nf (nv d)', nv = 3)
 
-        quantized = quantized.masked_fill(~face_mask[..., None], 0.)
-        face_embed_output = self.project_codebook_out(quantized)
-
         decoded = self.decode(
-            face_embed_output,
+            quantized,
             face_mask = face_mask
         )
 
