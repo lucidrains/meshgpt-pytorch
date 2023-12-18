@@ -28,7 +28,7 @@ setup(
     'local-attention>=1.9.0',
     'gateloop-transformer>=0.1.5',
     'pytorch-warmup',
-    'pytorch-custom-utils',
+    'pytorch-custom-utils>=0.0.4',
     'torch>=2.0',
     'torch_geometric',
     'torchtyping',
