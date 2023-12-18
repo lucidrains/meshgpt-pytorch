@@ -131,6 +131,7 @@ mesh_token_ids = autoencoder.tokenize(
     - [x] figure out how to auto-derive `face_edges` directly from faces and vertices
     - [x] embed any derived values (area, angles, etc) from the vertices before sage convs
     - [ ] add an extra graph conv stage in the encoder, where vertices are enriched with their connected vertex neighbors, before aggregating into faces. make optional
+    - [ ] allow for encoder to noise the vertices, so autoencoder is a bit denoising. consider conditioning decoder on noise level, if varying
 
 - [ ] transformer
     - [x] properly mask out eos logit during generation
