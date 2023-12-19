@@ -323,7 +323,7 @@ class MeshAutoencoderTrainer(Module):
 
             self.wait()
 
-            if self.is_main:
+            if self.is_main and divisible_by(step, self.checkpoint_every):
                 checkpoint_num = step // self.checkpoint_every
                 self.save(self.checkpoint_folder / f'mesh-autoencoder.ckpt.{checkpoint_num}.pt')
 
