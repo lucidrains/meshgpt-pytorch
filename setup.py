@@ -22,7 +22,7 @@ setup(
   install_requires=[
     'accelerate>=0.25.0',
     'beartype',
-    'classifier-free-guidance-pytorch>=0.4.2',
+    'classifier-free-guidance-pytorch>=0.4.3',
     'einops>=0.7.0',
     'ema-pytorch',
     'local-attention>=1.9.0',
