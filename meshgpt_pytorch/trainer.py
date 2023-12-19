@@ -240,7 +240,7 @@ class MeshAutoencoderTrainer(Module):
 
         self.model.load_state_dict(pkg['model'])
         self.ema_model.load_state_dict(pkg['ema_model'])
-        self.optimizer.load_state_dict(pkg)
+        self.optimizer.load_state_dict(pkg['optimizer'])
 
         self.step.copy_(pkg['step'])
 
@@ -584,7 +584,7 @@ class MeshTransformerTrainer(Module):
             self.print(f'loading saved mesh transformer at version {pkg["version"]}, but current package version is {__version__}')
 
         self.model.load_state_dict(pkg['model'])
-        self.optimizer.load_state_dict(pkg)
+        self.optimizer.load_state_dict(pkg['optimizer'])
         self.step.copy_(pkg['step'])
 
     def forward(self):
