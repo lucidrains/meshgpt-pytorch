@@ -588,7 +588,7 @@ class MeshTransformerTrainer(Module):
             self.print(f'loading saved mesh transformer at version {pkg["version"]}, but current package version is {__version__}')
 
         self.model.load_state_dict(pkg['model'])
-        self.optimizer.load_state_dict(pkg['optimizer'])
+        self.optimizer.load_state_dict(pkg)
         self.step.copy_(pkg['step'])
 
     def forward(self):
@@ -676,8 +676,6 @@ class MeshTransformerTrainer(Module):
                     loss = self.model(**forward_kwargs)
                     self.accelerator.backward(loss / self.grad_accum_every)
 
-                if exists(self.max_grad_norm):
-                    self.accelerator.clip_grad_norm_(self.model.parameters(), self.max_grad_norm)
 
                 self.optimizer.step()
                 self.optimizer.zero_grad()
