@@ -375,7 +375,7 @@ class MeshAutoencoder(Module):
         init_decoder_conv_kernel = 7,
         decoder_dims_through_depth: Tuple[int, ...] = (
             128, 128, 128, 128,
-            192, 192, 912, 192,
+            192, 192, 192, 192,
             256, 256, 256, 256, 256, 256,
             384, 384, 384
         ),
