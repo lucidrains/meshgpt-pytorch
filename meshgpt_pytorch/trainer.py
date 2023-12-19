@@ -358,10 +358,6 @@ class MeshAutoencoderTrainer(Module):
                 self.optimizer.step()
                 self.optimizer.zero_grad()
 
-                if not self.accelerator.optimizer_step_was_skipped:
-                    with self.warmup.dampening():
-                        self.scheduler.step()
- 
                 current_loss = loss.item()
                 total_loss += current_loss
                 num_batches += 1
@@ -680,9 +676,6 @@ class MeshTransformerTrainer(Module):
                 self.optimizer.step()
                 self.optimizer.zero_grad()
 
-                if not self.accelerator.optimizer_step_was_skipped:
-                    with self.warmup.dampening():
-                        self.scheduler.step()
  
                 current_loss = loss.item()
                 total_loss += current_loss
