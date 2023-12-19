@@ -8,10 +8,12 @@ from torch import nn, Tensor
 from torch.nn import Module
 import torch.nn.functional as F
 from torch.utils.data import Dataset, DataLoader
-from torch.optim.lr_scheduler import LambdaLR, LRScheduler
-import pytorch_warmup as warmup
+from torch.optim.lr_scheduler import _LRScheduler
 
-from pytorch_custom_utils import get_adam_optimizer
+from pytorch_custom_utils import (
+    get_adam_optimizer,
+    OptimizerWithWarmupSchedule
+)
 
 from accelerate import Accelerator
 from accelerate.utils import DistributedDataParallelKwargs
@@ -32,8 +34,6 @@ from meshgpt_pytorch.meshgpt_pytorch import (
 )
 
 # constants
-
-ConstantLRScheduler = partial(LambdaLR, lr_lambda = lambda step: 1.)
 
 DEFAULT_DDP_KWARGS = DistributedDataParallelKwargs(
     find_unused_parameters = True
@@ -80,7 +80,7 @@ class MeshAutoencoderTrainer(Module):
         weight_decay: float = 0.,
         max_grad_norm: Optional[float] = None,
         ema_kwargs: dict = dict(),
-        scheduler: Optional[Type[LRScheduler]] = None,
+        scheduler: Optional[Type[_LRScheduler]] = None,
         scheduler_kwargs: dict = dict(),
         accelerator_kwargs: dict = dict(),
         optimizer_kwargs: dict = dict(),
@@ -112,14 +112,14 @@ class MeshAutoencoderTrainer(Module):
         if self.is_main:
             self.ema_model = EMA(model, **ema_kwargs)
 
-        self.optimizer = get_adam_optimizer(model.parameters(), lr = learning_rate, wd = weight_decay, **optimizer_kwargs)
-
-        self.warmup = warmup.LinearWarmup(self.optimizer, warmup_period = warmup_steps)
-
-        if exists(scheduler):
-            self.scheduler = scheduler(self.optimizer, **scheduler_kwargs)
-        else:
-            self.scheduler = ConstantLRScheduler(self.optimizer)
+        self.optimizer = OptimizerWithWarmupSchedule(
+            accelerator = self.accelerator,
+            optimizer = get_adam_optimizer(model.parameters(), lr = learning_rate, wd = weight_decay, **optimizer_kwargs),
+            scheduler = scheduler,
+            scheduler_kwargs = scheduler_kwargs,
+            warmup_steps = warmup_steps,
+            max_grad_norm = max_grad_norm
+        )
 
         self.dataloader = DataLoader(
             dataset,
@@ -149,18 +149,13 @@ class MeshAutoencoderTrainer(Module):
 
         (
             self.model,
-            self.optimizer,
-            self.scheduler,
             self.dataloader
         ) = self.accelerator.prepare(
             self.model,
-            self.optimizer,
-            self.scheduler,
             self.dataloader
         )
 
         self.grad_accum_every = grad_accum_every
-        self.max_grad_norm = max_grad_norm
         self.num_train_steps = num_train_steps
         self.register_buffer('step', torch.tensor(0))
 
@@ -227,8 +222,6 @@ class MeshAutoencoderTrainer(Module):
             model = self.unwrapped_model.state_dict(),
             ema_model = self.ema_model.state_dict(),
             optimizer = self.optimizer.state_dict(),
-            warmup = self.warmup.state_dict(),
-            scheduler = self.scheduler.state_dict(),
             version = __version__,
             step = self.step.item(),
             config = self.unwrapped_model._config
@@ -248,8 +241,6 @@ class MeshAutoencoderTrainer(Module):
         self.model.load_state_dict(pkg['model'])
         self.ema_model.load_state_dict(pkg['ema_model'])
         self.optimizer.load_state_dict(pkg['optimizer'])
-        self.warmup.load_state_dict(pkg['warmup'])
-        self.scheduler.load_state_dict(pkg['scheduler'])
 
         self.step.copy_(pkg['step'])
 
@@ -297,15 +288,8 @@ class MeshAutoencoderTrainer(Module):
                 recon_loss = recon_loss.item()
             )
 
-            if exists(self.max_grad_norm):
-                self.accelerator.clip_grad_norm_(self.model.parameters(), self.max_grad_norm)
-
             self.optimizer.step()
             self.optimizer.zero_grad()
-
-            if not self.accelerator.optimizer_step_was_skipped:
-                with self.warmup.dampening():
-                    self.scheduler.step()
 
             step += 1
             self.step.add_(1)
@@ -342,7 +326,7 @@ class MeshAutoencoderTrainer(Module):
 
             self.wait()
 
-            if self.is_main:
+            if self.is_main and divisible_by(step, self.checkpoint_every):
                 checkpoint_num = step // self.checkpoint_every
                 self.save(self.checkpoint_folder / f'mesh-autoencoder.ckpt.{checkpoint_num}.pt')
 
@@ -430,7 +414,7 @@ class MeshTransformerTrainer(Module):
         val_dataset: Optional[Dataset] = None,
         val_every = 1,
         val_num_batches = 5,
-        scheduler: Optional[Type[LRScheduler]] = None,
+        scheduler: Optional[Type[_LRScheduler]] = None,
         scheduler_kwargs: dict = dict(),
         ema_kwargs: dict = dict(),
         accelerator_kwargs: dict = dict(),
@@ -459,7 +443,7 @@ class MeshTransformerTrainer(Module):
 
         self.model = model
 
-        self.optimizer = get_adam_optimizer(
+        optimizer = get_adam_optimizer(
             model.parameters(),
             lr = learning_rate,
             wd = weight_decay,
@@ -467,12 +451,14 @@ class MeshTransformerTrainer(Module):
             **optimizer_kwargs
         )
 
-        self.warmup = warmup.LinearWarmup(self.optimizer, warmup_period = warmup_steps)
-
-        if exists(scheduler):
-            self.scheduler = scheduler(self.optimizer, **scheduler_kwargs)
-        else:
-            self.scheduler = ConstantLRScheduler(self.optimizer)
+        self.optimizer = OptimizerWithWarmupSchedule(
+            accelerator = self.accelerator,
+            optimizer = optimizer,
+            scheduler = scheduler,
+            scheduler_kwargs = scheduler_kwargs,
+            warmup_steps = warmup_steps,
+            max_grad_norm = max_grad_norm
+        )
 
         self.dataloader = DataLoader(
             dataset,
@@ -502,18 +488,13 @@ class MeshTransformerTrainer(Module):
 
         (
             self.model,
-            self.optimizer,
-            self.scheduler,
             self.dataloader
         ) = self.accelerator.prepare(
             self.model,
-            self.optimizer,
-            self.scheduler,
             self.dataloader
         )
 
         self.grad_accum_every = grad_accum_every
-        self.max_grad_norm = max_grad_norm
         self.num_train_steps = num_train_steps
         self.register_buffer('step', torch.tensor(0))
 
@@ -583,8 +564,6 @@ class MeshTransformerTrainer(Module):
         pkg = dict(
             model = self.unwrapped_model.state_dict(),
             optimizer = self.optimizer.state_dict(),
-            warmup = self.warmup.state_dict(),
-            scheduler = self.scheduler.state_dict(),
             step = self.step.item(),
             version = __version__
         )
@@ -602,8 +581,6 @@ class MeshTransformerTrainer(Module):
 
         self.model.load_state_dict(pkg['model'])
         self.optimizer.load_state_dict(pkg['optimizer'])
-        self.scheduler.load_state_dict(pkg['scheduler'])
-        self.warmup.load_state_dict(pkg['warmup'])
         self.step.copy_(pkg['step'])
 
     def forward(self):
@@ -630,15 +607,8 @@ class MeshTransformerTrainer(Module):
 
             self.log(loss = loss.item())
 
-            if exists(self.max_grad_norm):
-                self.accelerator.clip_grad_norm_(self.model.parameters(), self.max_grad_norm)
-
             self.optimizer.step()
             self.optimizer.zero_grad()
-
-            if not self.accelerator.optimizer_step_was_skipped:
-                with self.warmup.dampening():
-                    self.scheduler.step()
 
             step += 1
             self.step.add_(1)

@@ -1279,7 +1279,9 @@ class MeshTransformer(Module):
             codes = F.pad(codes, (0, 1), value = 0)
 
             batch_arange = torch.arange(batch, device = device)
+
             batch_arange = rearrange(batch_arange, '... -> ... 1')
+            code_lens = rearrange(code_lens, '... -> ... 1')
 
             codes[batch_arange, code_lens] = self.eos_token_id
 

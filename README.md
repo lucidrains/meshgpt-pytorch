@@ -18,6 +18,8 @@ Please join <a href="https://discord.gg/xBPBXfcFHd"><img alt="Join us on Discord
 
 - <a href="https://github.com/MarcusLoppe">Marcus</a> for the <a href="https://github.com/lucidrains/meshgpt-pytorch/issues/18#issuecomment-1859214710">first successful training</a> of a collection of shapes conditioned on labels
 
+- <a href="https://github.com/qixuema">Quexi Ma</a> for finding numerous bugs with automatic eos handling
+
 ## Install
 
 ```bash
