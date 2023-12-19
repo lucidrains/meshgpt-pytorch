@@ -240,7 +240,7 @@ class MeshAutoencoderTrainer(Module):
 
         self.model.load_state_dict(pkg['model'])
         self.ema_model.load_state_dict(pkg['ema_model'])
-        self.optimizer.load_state_dict(pkg['optimizer'])
+        self.optimizer.load_state_dict(pkg)
 
         self.step.copy_(pkg['step'])
 
@@ -353,10 +353,7 @@ class MeshAutoencoderTrainer(Module):
 
                 with self.accelerator.autocast():
                     loss = self.model(vertices = forward_kwargs['vertices'], faces= forward_kwargs['faces'])
-                    self.accelerator.backward(loss)
-
-                if exists(self.max_grad_norm):
-                    self.accelerator.clip_grad_norm_(self.model.parameters(), self.max_grad_norm)
+                    self.accelerator.backward(loss) 
 
                 self.optimizer.step()
                 self.optimizer.zero_grad()
