@@ -317,13 +317,12 @@ class GateLoopBlock(Module):
         dim,
         *,
         depth,
-        use_heinsen = True
     ):
         super().__init__()
         self.gateloops = ModuleList([])
 
         for _ in range(depth):
-            gateloop = SimpleGateLoopLayer(dim = dim, use_heinsen = use_heinsen)
+            gateloop = SimpleGateLoopLayer(dim = dim)
             self.gateloops.append(gateloop)
 
     def forward(
@@ -1065,7 +1064,6 @@ class MeshTransformer(Module):
         dropout = 0.,
         coarse_pre_gateloop_depth = 2,
         fine_pre_gateloop_depth = 2,
-        gateloop_use_heinsen = True,
         fine_attn_depth = 2,
         fine_attn_dim_head = 32,
         fine_attn_heads = 8,
@@ -1121,7 +1119,7 @@ class MeshTransformer(Module):
             nn.LayerNorm(dim)
         )
 
-        self.coarse_gateloop_block = GateLoopBlock(dim, depth = coarse_pre_gateloop_depth, use_heinsen = gateloop_use_heinsen) if coarse_pre_gateloop_depth > 0 else nn.Identity()
+        self.coarse_gateloop_block = GateLoopBlock(dim, depth = coarse_pre_gateloop_depth) if coarse_pre_gateloop_depth > 0 else nn.Identity()
 
         # main autoregressive attention network
         # attending to a face token
