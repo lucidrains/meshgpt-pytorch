@@ -152,6 +152,7 @@ mesh_token_ids = autoencoder.tokenize(
 - [x] text conditioning using own CFG library
     - [x] complete preliminary text conditioning
     - [ ] make sure CFG library can support passing in arguments to the two separate calls when cond scaling (as well as aggregating their outputs)
+    - [ ] polish up the magic dataset decorator and see if it can be moved to CFG library
 - [x] hierarchical transformers (using the RQ transformer)
 - [x] fix caching in simple gateloop layer in other repo
 - [x] local attention
