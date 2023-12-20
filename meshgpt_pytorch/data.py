@@ -99,7 +99,14 @@ def cache_text_embeds_for_dataset(
     def inner(dataset_klass):
         assert issubclass(dataset_klass, Dataset)
 
+        orig_init = dataset_klass.__init__
         orig_get_item = dataset_klass.__getitem__
+
+        def __init__(self, *args, **kwargs):
+            orig_init(self, *args, **kwargs)
+
+            if hasattr(self, 'data_kwargs'):
+                self.data_kwargs = [('text_embeds' if data_kwarg == 'texts' else data_kwarg) for data_kwarg in self.data_kwargs]
 
         def __getitem__(self, idx):
             items = orig_get_item(self, idx)
@@ -124,6 +131,7 @@ def cache_text_embeds_for_dataset(
 
             return items
 
+        dataset_klass.__init__ = __init__
         dataset_klass.__getitem__ = __getitem__
 
         return dataset_klass
