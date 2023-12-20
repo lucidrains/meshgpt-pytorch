@@ -19,7 +19,8 @@ from accelerate import Accelerator
 from accelerate.utils import DistributedDataParallelKwargs
 
 from beartype import beartype
-from beartype.typing import Optional, Tuple, Type
+from beartype.door import is_bearable
+from beartype.typing import Optional, Tuple, Type, List
 
 from ema_pytorch import EMA
 
@@ -143,7 +144,11 @@ class MeshAutoencoderTrainer(Module):
                 collate_fn = partial(custom_collate, pad_id = model.pad_id)
             )
 
-        self.data_kwargs = data_kwargs
+        if hasattr(dataset, 'data_kwargs') and exists(dataset.data_kwargs):
+            assert is_bearable(dataset.data_kwargs, List[str])
+            self.data_kwargs = dataset.data_kwargs
+        else:
+            self.data_kwargs = data_kwargs
 
         (
             self.model,
@@ -416,7 +421,11 @@ class MeshTransformerTrainer(Module):
                 collate_fn = partial(custom_collate, pad_id = model.pad_id)
             )
 
-        self.data_kwargs = data_kwargs
+        if hasattr(dataset, 'data_kwargs') and exists(dataset.data_kwargs):
+            assert is_bearable(dataset.data_kwargs, List[str])
+            self.data_kwargs = dataset.data_kwargs
+        else:
+            self.data_kwargs = data_kwargs
 
         (
             self.model,

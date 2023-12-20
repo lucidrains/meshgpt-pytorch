@@ -10,5 +10,6 @@ from meshgpt_pytorch.trainer import (
 )
 
 from meshgpt_pytorch.data import (
-    DatasetFromTransforms
+    DatasetFromTransforms,
+    cache_text_embeds_for_dataset
 )

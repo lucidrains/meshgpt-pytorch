@@ -27,6 +27,7 @@ setup(
     'ema-pytorch',
     'local-attention>=1.9.0',
     'gateloop-transformer>=0.1.5',
+    'numpy',
     'pytorch-custom-utils>=0.0.5',
     'torch>=2.0',
     'torch_geometric',
