@@ -104,16 +104,25 @@ def cache_text_embeds_for_dataset(
         def __getitem__(self, idx):
             items = orig_get_item(self, idx)
 
-            new_items = []
+            if isinstance(items, dict):
+                if 'texts' in items:
+                    text_embed = get_maybe_cached_text_embed(idx, len(self), items['texts'])
+                    items['text_embeds'] = text_embed
+                    del items['texts']
 
-            for maybe_text in items:
-                if not isinstance(maybe_text, str):
-                    new_items.append(maybe_text)
-                    continue
+            elif isinstance(items, tuple):
+                new_items = []
 
-                new_items.append(get_maybe_cached_text_embed(idx, len(self), maybe_text))
+                for maybe_text in items:
+                    if not isinstance(maybe_text, str):
+                        new_items.append(maybe_text)
+                        continue
 
-            return tuple(new_items)
+                    new_items.append(get_maybe_cached_text_embed(idx, len(self), maybe_text))
+
+                items = tuple(new_items)
+
+            return items
 
         dataset_klass.__getitem__ = __getitem__
 
