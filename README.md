@@ -159,6 +159,10 @@ mesh_token_ids = autoencoder.tokenize(
 - [x] fix caching for gateloop layers
 - [x] allow for customization of model dimensions of fine vs coarse attention network
 
+- [ ] figure out if autoencoder is really necessary
+    - [ ] when mesh discretizer is passed in, one can inject inter-face attention with the relative distance
+    - [ ] additional embeddings (angles, area, normal), can also be appended before coarse transformer attention
+
 - [ ] make transformer efficient
     - [ ] reversible networks
     - [ ] give mamba a test drive
