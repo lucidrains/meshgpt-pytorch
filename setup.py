@@ -26,7 +26,7 @@ setup(
     'einops>=0.7.0',
     'ema-pytorch',
     'local-attention>=1.9.0',
-    'gateloop-transformer>=0.1.5',
+    'gateloop-transformer>=0.2.0',
     'numpy',
     'pytorch-custom-utils>=0.0.5',
     'torch>=2.0',
