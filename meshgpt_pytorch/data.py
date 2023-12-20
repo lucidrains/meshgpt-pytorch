@@ -70,22 +70,23 @@ def cache_text_embeds_for_dataset(
         # or call text model
 
         if is_cached[idx]:
-            return torch.from_numpy(text_embed_cache[idx])
+            text_embed = torch.from_numpy(text_embed_cache[idx])
+        else:
+            # cache
 
-        # cache
+            text_embed = get_text_embed(text)
+            text_embed_len = text_embed.shape[0]
 
-        text_embed = get_text_embed(text)
-        text_embed_len = text_embed.shape[0]
+            if text_embed_len > max_text_len:
+                text_embed = text_embed[:max_text_len]
+            elif text_embed_len < max_text_len:
+                text_embed = F.pad(text_embed, (0, 0, 0, max_text_len - text_embed_len))
 
-        if text_embed_len > max_text_len:
-            text_embed = text_embed[:max_text_len]
-        elif text_embed_len < max_text_len:
-            text_embed = F.pad(text_embed, (0, 0, 0, max_text_len - text_embed_len))
+            is_cached[idx] = True
+            text_embed_cache[idx] = text_embed.cpu().numpy()
 
-        is_cached[idx] = True
-        text_embed_cache[idx] = text_embed.cpu().numpy()
-
-        return text_embed
+        mask = ~reduce(text_embed == 0, 'n d -> n', 'all')
+        return text_embed[mask]
 
     # get text embedding
 
