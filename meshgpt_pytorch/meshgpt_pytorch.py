@@ -361,7 +361,8 @@ class MeshDiscretizer(Module):
     def __init__(
         self,
         num_discrete_coors = 128,
-        coor_continuous_range: Tuple[float, float] = (-1., 1.)
+        coor_continuous_range: Tuple[float, float] = (-1., 1.),
+        pad_id = -1
     ):
         super().__init__()
         self.num_discrete_coors = num_discrete_coors
@@ -371,6 +372,7 @@ class MeshDiscretizer(Module):
         self.num_quantizers = 3
 
         self.discretize_face_coords = partial(discretize, num_discrete = num_discrete_coors, continuous_range = coor_continuous_range)
+        self.pad_id = pad_id
 
     def decode_from_codes_to_faces(
         self,
@@ -395,22 +397,20 @@ class MeshDiscretizer(Module):
             continuous_range = self.coor_continuous_range
         )
 
+        continuous_coors = rearrange(continuous_coors, 'b (nf nv) q -> b nf nv q', nv = 3)
+
         # mask out with nan
 
         continuous_coors = continuous_coors.masked_fill(~rearrange(face_mask, 'b nf -> b nf 1 1'), float('nan'))
 
-        if not return_discrete_codes:
-            return continuous_coors, face_mask
-
-        return continuous_coors, pred_face_coords, face_mask
+        return continuous_coors, face_mask
 
     @torch.no_grad()
-    def tokenize(self, vertices, faces, face_edges = None, **kwargs):
+    def tokenize(self, **kwargs):
         assert 'return_codes' not in kwargs
         self.eval()
 
         return self.forward(
-            **input_kwargs,
             return_codes = True,
             **kwargs
         )
@@ -425,14 +425,13 @@ class MeshDiscretizer(Module):
         return_codes = True,
         **kwargs
     ):
-        if not exists(face_edges):
-            face_edges = derive_face_edges_from_faces(faces, pad_id = self.pad_id)
+        num_faces, device = faces.shape[1], faces.device
 
-        num_faces, num_face_edges, device = faces.shape[1], face_edges.shape[1], faces.device
+        face_mask = reduce(faces != self.pad_id, 'b nf c -> b nf', 'all')
 
         face_without_pad = faces.masked_fill(~rearrange(face_mask, 'b nf -> b nf 1'), 0)
 
-        faces_vertices = repeat(face_without_pad, 'b nf nv -> b nf nv c', c = num_coors)
+        faces_vertices = repeat(face_without_pad, 'b nf nv -> b nf nv c', c = vertices.shape[-1])
         vertices = repeat(vertices, 'b nv c -> b nf nv c', nf = num_faces)
 
         # continuous face coords
@@ -442,7 +441,7 @@ class MeshDiscretizer(Module):
         # discretize vertices for face coordinate embedding
 
         codes = self.discretize_face_coords(face_coords)
-        codes = rearrange(codes, 'b nf nv c -> b nf (nv c)') # 9 coordinates per face
+        codes = rearrange(codes, 'b nf nv c -> b (nf nv) c') # 9 coordinates per face
 
         codes = codes.masked_fill(~repeat(face_mask, 'b nf -> b (nf 3) 1'), self.pad_id)
         return codes
