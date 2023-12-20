@@ -30,7 +30,7 @@ Faces = TensorType['nf', 3, int]        # 3 vertices
 # decorator for auto-caching texts -> text embeds
 
 # you would decorate your Dataset class with this
-# and then change your `data_kwargs = ["text_embed", "vertices", "faces"]`
+# and then change your `data_kwargs = ["text_embeds", "vertices", "faces"]`
 
 @beartype
 def cache_text_embeds_for_dataset(
