@@ -1,5 +1,5 @@
 from pathlib import Path
-
+from functools import partial
 import torch
 from torch import Tensor
 from torch import is_tensor
@@ -36,8 +36,7 @@ Faces = TensorType['nf', 3, int]        # 3 vertices
 def cache_text_embeds_for_dataset(
     embed_texts_fn: Callable[[List[str]], Tensor],
     max_text_len: int,
-    cache_path: str = './text_embed_cache',
-    cache_memmap_file_mode = 'w+'
+    cache_path: str = './text_embed_cache'
 ):
     # create path to cache folder
 
@@ -52,7 +51,12 @@ def cache_text_embeds_for_dataset(
 
     # cache function
 
-    def get_maybe_cached_text_embed(idx: int, dataset_len: int, text: str):
+    def get_maybe_cached_text_embed(
+        idx: int,
+        dataset_len: int,
+        text: str,
+        memmap_file_mode = 'w+'
+    ):
         nonlocal text_embed_cache
         nonlocal is_cached
 
@@ -63,8 +67,8 @@ def cache_text_embeds_for_dataset(
             feat_dim = test_embed.shape[-1]
             shape = (dataset_len, max_text_len, feat_dim)
 
-            text_embed_cache = open_memmap(str(path / 'cache.text_embed.memmap.npy'), mode = cache_memmap_file_mode, dtype = 'float32', shape = shape)
-            is_cached = open_memmap(str(path / 'cache.is_cached.memmap.npy'), mode = cache_memmap_file_mode, dtype = 'bool', shape = (dataset_len,))
+            text_embed_cache = open_memmap(str(path / 'cache.text_embed.memmap.npy'), mode = memmap_file_mode, dtype = 'float32', shape = shape)
+            is_cached = open_memmap(str(path / 'cache.is_cached.memmap.npy'), mode = memmap_file_mode, dtype = 'bool', shape = (dataset_len,))
 
         # determine whether to fetch from cache
         # or call text model
@@ -102,8 +106,15 @@ def cache_text_embeds_for_dataset(
         orig_init = dataset_klass.__init__
         orig_get_item = dataset_klass.__getitem__
 
-        def __init__(self, *args, **kwargs):
+        def __init__(
+            self,
+            *args,
+            cache_memmap_file_mode = 'w+',
+            **kwargs
+        ):
             orig_init(self, *args, **kwargs)
+
+            self._cache_memmap_file_mode = cache_memmap_file_mode
 
             if hasattr(self, 'data_kwargs'):
                 self.data_kwargs = [('text_embeds' if data_kwarg == 'texts' else data_kwarg) for data_kwarg in self.data_kwargs]
@@ -111,9 +122,11 @@ def cache_text_embeds_for_dataset(
         def __getitem__(self, idx):
             items = orig_get_item(self, idx)
 
+            get_text_embed_ = partial(get_maybe_cached_text_embed, idx, len(self), memmap_file_mode = self._cache_memmap_file_mode)
+
             if isinstance(items, dict):
                 if 'texts' in items:
-                    text_embed = get_maybe_cached_text_embed(idx, len(self), items['texts'])
+                    text_embed = get_text_embed_(items['texts'])
                     items['text_embeds'] = text_embed
                     del items['texts']
 
@@ -125,7 +138,7 @@ def cache_text_embeds_for_dataset(
                         new_items.append(maybe_text)
                         continue
 
-                    new_items.append(get_maybe_cached_text_embed(idx, len(self), maybe_text))
+                    new_items.append(get_text_embed_(maybe_text))
 
                 items = tuple(new_items)
 
