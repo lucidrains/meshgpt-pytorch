@@ -166,9 +166,10 @@ mesh_token_ids = autoencoder.tokenize(
 
 - [ ] make transformer efficient
     - [ ] reversible networks
-    - [ ] give mamba a test drive
 
 - [ ] speculative decoding option
+
+- [ ] spend a day on documentation
 
 ## Citations
 
