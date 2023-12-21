@@ -1272,12 +1272,13 @@ class MeshTransformer(Module):
 
             is_eos_codes = (codes == self.eos_token_id)
 
-            if not is_eos_codes.any(dim = -1).all():
-                continue
+            if is_eos_codes.any(dim = -1).all():
+                break
 
-            mask = is_eos_codes.float().cumsum(dim = -1) >= 1
-            codes = codes.masked_fill(mask, self.pad_id)
-            break
+        # mask out to padding anything after the first eos
+
+        mask = is_eos_codes.float().cumsum(dim = -1) >= 1
+        codes = codes.masked_fill(mask, self.pad_id)
 
         # remove a potential extra token from eos, if breaked early
 
