@@ -577,7 +577,7 @@ class MeshAutoencoder(Module):
 
         for _ in range(local_attn_encoder_depth):
             self.encoder_local_attn_blocks.append(nn.ModuleList([
-                LocalMHA(dim = dim, **attn_kwargs, **local_attn_kwargs),
+                LocalMHA(dim = curr_dim, **attn_kwargs, **local_attn_kwargs),
                 nn.Sequential(RMSNorm(curr_dim), FeedForward(curr_dim, glu = True, dropout = ff_dropout))
             ]))
 
