@@ -12,7 +12,8 @@ from torch.optim.lr_scheduler import _LRScheduler
 
 from pytorch_custom_utils import (
     get_adam_optimizer,
-    OptimizerWithWarmupSchedule
+    OptimizerWithWarmupSchedule,
+    add_wandb_tracker_contextmanager
 )
 
 from accelerate import Accelerator
@@ -64,6 +65,7 @@ def maybe_del(d: dict, *keys):
 
 # autoencoder trainer
 
+@add_wandb_tracker_contextmanager()
 class MeshAutoencoderTrainer(Module):
     @beartype
     def __init__(
@@ -172,24 +174,6 @@ class MeshAutoencoderTrainer(Module):
 
     def tokenize(self, *args, **kwargs):
         return self.ema_tokenizer.tokenize(*args, **kwargs)
-
-    @contextmanager
-    @beartype
-    def trackers(
-        self,
-        project_name: str,
-        run_name: Optional[str] = None,
-        hps: Optional[dict] = None
-    ):
-        assert self.use_wandb_tracking
-
-        self.accelerator.init_trackers(project_name, config = hps)
-
-        if exists(run_name):
-            self.accelerator.trackers[0].run.name = run_name
-
-        yield
-        self.accelerator.end_training()
 
     def log(self, **data_kwargs):
         self.accelerator.log(data_kwargs, step = self.step.item())
@@ -338,6 +322,7 @@ class MeshAutoencoderTrainer(Module):
 
 # mesh transformer trainer
 
+@add_wandb_tracker_contextmanager()
 class MeshTransformerTrainer(Module):
     @beartype
     def __init__(
@@ -442,24 +427,6 @@ class MeshTransformerTrainer(Module):
         self.checkpoint_every = checkpoint_every
         self.checkpoint_folder = Path(checkpoint_folder)
         self.checkpoint_folder.mkdir(exist_ok = True, parents = True)
-
-    @contextmanager
-    @beartype
-    def trackers(
-        self,
-        project_name: str,
-        run_name: Optional[str] = None,
-        hps: Optional[dict] = None
-    ):
-        assert self.use_wandb_tracking
-
-        self.accelerator.init_trackers(project_name, config = hps)
-
-        if exists(run_name):
-            self.accelerator.trackers[0].run.name = run_name
-
-        yield
-        self.accelerator.end_training()
 
     def log(self, **data_kwargs):
         self.accelerator.log(data_kwargs, step = self.step.item())
