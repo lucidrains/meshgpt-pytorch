@@ -1227,11 +1227,7 @@ class MeshTransformer(Module):
 
         curr_length = codes.shape[-1]
 
-        # for now, kv cache disabled when conditioning on text
-
-        can_cache = cache_kv and (not self.condition_on_text or cond_scale == 1.)
-
-        cache = None
+        cache = (None, None)
 
         for i in tqdm(range(curr_length, self.max_seq_len)):
             # v1([q1] [q2] [q1] [q2] [q1] [q2]) v2([eos| q1] [q2] [q1] [q2] [q1] [q2]) -> 0 1 2 3 4 5 6 7 8 9 10 11 12 -> v1(F F F F F F) v2(T F F F F F) v3(T F F F F F)
@@ -1240,16 +1236,21 @@ class MeshTransformer(Module):
 
             output = self.forward_on_codes(
                 codes,
-                cache = cache,
                 text_embeds = text_embeds,
                 return_loss = False,
-                return_cache = can_cache,
+                return_cache = cache_kv,
                 append_eos = False,
-                cond_scale = cond_scale
+                cond_scale = cond_scale,
+                cfg_routed_kwargs = dict(
+                    cache = cache
+                )
             )
 
-            if can_cache:
+            if cache_kv:
                 logits, cache = output
+
+                if cond_scale == 1.:
+                    cache = (cache, None)
             else:
                 logits = output
 
