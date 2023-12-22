@@ -92,7 +92,7 @@ transformer = MeshTransformer(
     dim = 512,
     max_seq_len = 768,
     condition_on_text = True
-).cpu()
+)
 
 
 loss = transformer(
