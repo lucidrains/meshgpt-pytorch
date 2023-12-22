@@ -22,6 +22,9 @@ from torchtyping import TensorType
 def exists(v):
     return v is not None
 
+def identity(t):
+    return t
+
 # constants
 
 Vertices = TensorType['nv', 3, float]   # 3 coordinates
@@ -159,7 +162,8 @@ class DatasetFromTransforms(Dataset):
         self,
         folder: str,
         transforms: Dict[str, Callable[[Path], Tuple[Vertices, Faces]]],
-        data_kwargs: Optional[List[str]] = None
+        data_kwargs: Optional[List[str]] = None,
+        augment_fn: Callable = identity
     ):
         folder = Path(folder)
         assert folder.exists and folder.is_dir()
@@ -173,6 +177,7 @@ class DatasetFromTransforms(Dataset):
 
         self.transforms = transforms
         self.data_kwargs = data_kwargs
+        self.augment_fn = augment_fn
 
     def __len__(self):
         return len(self.paths)
@@ -182,7 +187,8 @@ class DatasetFromTransforms(Dataset):
         ext = path.suffix[1:]
         fn = self.transforms[ext]
 
-        return fn(path)
+        out = fn(path)
+        return self.augment_fn(out)
 
 # tensor helper functions
 
