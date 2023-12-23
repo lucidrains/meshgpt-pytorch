@@ -1308,14 +1308,16 @@ class MeshTransformer(Module):
         vertices:       TensorType['b', 'nv', 3, int],
         faces:          TensorType['b', 'nf', 3, int],
         face_edges:     Optional[TensorType['b', 'e', 2, int]] = None,
+        codes:          Optional[Tensor] = None,
         cache:          Optional[LayerIntermediates] = None,
         **kwargs
     ):
-        codes = self.autoencoder.tokenize(
-            vertices = vertices,
-            faces = faces,
-            face_edges = face_edges
-        )
+        if not exists(codes):
+            codes = self.autoencoder.tokenize(
+                vertices = vertices,
+                faces = faces,
+                face_edges = face_edges
+            )
 
         return self.forward_on_codes(codes, cache = cache, **kwargs)
 
