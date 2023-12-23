@@ -1,22 +1,159 @@
 from pathlib import Path
-
+from functools import partial
 import torch
+from torch import Tensor
 from torch import is_tensor
+import torch.nn.functional as F
 from torch.utils.data import Dataset
 from torch.nn.utils.rnn import pad_sequence
+
+import numpy as np
+from numpy.lib.format import open_memmap
 
 from einops import rearrange, reduce
 from torch import nn, Tensor
 
 from beartype import beartype
-from beartype.typing import Tuple, Union, Optional, Callable, Dict
+from beartype.typing import Tuple, List, Union, Optional, Callable, Dict, Callable
 
 from torchtyping import TensorType
+
+# helper fn
+
+def exists(v):
+    return v is not None
+
+def identity(t):
+    return t
 
 # constants
 
 Vertices = TensorType['nv', 3, float]   # 3 coordinates
 Faces = TensorType['nf', 3, int]        # 3 vertices
+
+# decorator for auto-caching texts -> text embeds
+
+# you would decorate your Dataset class with this
+# and then change your `data_kwargs = ["text_embeds", "vertices", "faces"]`
+
+@beartype
+def cache_text_embeds_for_dataset(
+    embed_texts_fn: Callable[[List[str]], Tensor],
+    max_text_len: int,
+    cache_path: str = './text_embed_cache'
+):
+    # create path to cache folder
+
+    path = Path(cache_path)
+    path.mkdir(exist_ok = True, parents = True)
+    assert path.is_dir()
+
+    # global memmap handles
+
+    text_embed_cache = None
+    is_cached = None
+
+    # cache function
+
+    def get_maybe_cached_text_embed(
+        idx: int,
+        dataset_len: int,
+        text: str,
+        memmap_file_mode = 'w+'
+    ):
+        nonlocal text_embed_cache
+        nonlocal is_cached
+
+        # init cache on first call
+
+        if not exists(text_embed_cache):
+            test_embed = embed_texts_fn(['test'])
+            feat_dim = test_embed.shape[-1]
+            shape = (dataset_len, max_text_len, feat_dim)
+
+            text_embed_cache = open_memmap(str(path / 'cache.text_embed.memmap.npy'), mode = memmap_file_mode, dtype = 'float32', shape = shape)
+            is_cached = open_memmap(str(path / 'cache.is_cached.memmap.npy'), mode = memmap_file_mode, dtype = 'bool', shape = (dataset_len,))
+
+        # determine whether to fetch from cache
+        # or call text model
+
+        if is_cached[idx]:
+            text_embed = torch.from_numpy(text_embed_cache[idx])
+        else:
+            # cache
+
+            text_embed = get_text_embed(text)
+            text_embed_len = text_embed.shape[0]
+
+            if text_embed_len > max_text_len:
+                text_embed = text_embed[:max_text_len]
+            elif text_embed_len < max_text_len:
+                text_embed = F.pad(text_embed, (0, 0, 0, max_text_len - text_embed_len))
+
+            is_cached[idx] = True
+            text_embed_cache[idx] = text_embed.cpu().numpy()
+
+        mask = ~reduce(text_embed == 0, 'n d -> n', 'all')
+        return text_embed[mask]
+
+    # get text embedding
+
+    def get_text_embed(text: str):
+        text_embeds = embed_texts_fn([text])
+        return text_embeds[0]
+
+    # inner function
+
+    def inner(dataset_klass):
+        assert issubclass(dataset_klass, Dataset)
+
+        orig_init = dataset_klass.__init__
+        orig_get_item = dataset_klass.__getitem__
+
+        def __init__(
+            self,
+            *args,
+            cache_memmap_file_mode = 'w+',
+            **kwargs
+        ):
+            orig_init(self, *args, **kwargs)
+
+            self._cache_memmap_file_mode = cache_memmap_file_mode
+
+            if hasattr(self, 'data_kwargs'):
+                self.data_kwargs = [('text_embeds' if data_kwarg == 'texts' else data_kwarg) for data_kwarg in self.data_kwargs]
+
+        def __getitem__(self, idx):
+            items = orig_get_item(self, idx)
+
+            get_text_embed_ = partial(get_maybe_cached_text_embed, idx, len(self), memmap_file_mode = self._cache_memmap_file_mode)
+
+            if isinstance(items, dict):
+                if 'texts' in items:
+                    text_embed = get_text_embed_(items['texts'])
+                    items['text_embeds'] = text_embed
+                    del items['texts']
+
+            elif isinstance(items, tuple):
+                new_items = []
+
+                for maybe_text in items:
+                    if not isinstance(maybe_text, str):
+                        new_items.append(maybe_text)
+                        continue
+
+                    new_items.append(get_text_embed_(maybe_text))
+
+                items = tuple(new_items)
+
+            return items
+
+        dataset_klass.__init__ = __init__
+        dataset_klass.__getitem__ = __getitem__
+
+        return dataset_klass
+
+    return inner
 
 # dataset
 
@@ -25,7 +162,9 @@ class DatasetFromTransforms(Dataset):
     def __init__(
         self,
         folder: str,
-        transforms: Dict[str, Callable[[Path], Tuple[Vertices, Faces]]]
+        transforms: Dict[str, Callable[[Path], Tuple[Vertices, Faces]]],
+        data_kwargs: Optional[List[str]] = None,
+        augment_fn: Callable = identity
     ):
         folder = Path(folder)
         assert folder.exists and folder.is_dir()
@@ -38,6 +177,8 @@ class DatasetFromTransforms(Dataset):
         assert len(self.paths) > 0
 
         self.transforms = transforms
+        self.data_kwargs = data_kwargs
+        self.augment_fn = augment_fn
 
     def __len__(self):
         return len(self.paths)
@@ -47,7 +188,8 @@ class DatasetFromTransforms(Dataset):
         ext = path.suffix[1:]
         fn = self.transforms[ext]
 
-        return fn(path)
+        out = fn(path)
+        return self.augment_fn(out)
 
 # tensor helper functions
 
