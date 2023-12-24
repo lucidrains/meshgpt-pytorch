@@ -341,7 +341,7 @@ class MeshAutoencoderTrainer(Module):
                 
 
                 with self.accelerator.autocast():
-                    loss = self.model(vertices = forward_kwargs['vertices'], faces= forward_kwargs['faces'])
+                    loss = self.model(**forward_kwargs)
                     self.accelerator.backward(loss) 
 
                 self.optimizer.step()
