@@ -332,16 +332,10 @@ class MeshAutoencoderTrainer(Module):
             progress_bar = tqdm(self.dataloader, desc=f'Epoch {epoch + 1}/{num_epochs}') 
 
             for data in progress_bar: 
-
-                if isinstance(data, tuple): 
-                    forward_kwargs = dict(zip(self.data_kwargs, data))
-
-                elif isinstance(data, dict): 
-                    forward_kwargs = data 
-                
+ 
 
                 with self.accelerator.autocast():
-                    loss = self.model(**forward_kwargs)
+                    loss = self.model(**data)
                     self.accelerator.backward(loss) 
 
                 self.optimizer.step()
