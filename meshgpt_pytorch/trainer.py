@@ -334,52 +334,68 @@ class MeshAutoencoderTrainer(Module):
 
         self.print('training complete')
     def train(self, num_epochs, stop_at_loss = None, diplay_graph = False):
-        epoch_losses = []  # Initialize a list to store epoch losses
+        epoch_losses, epoch_recon_losses, epoch_commit_losses = [] , [],[]
+        dl_iter = cycle(self.dataloader)
+        epoch_size = len(self.dataloader)
         self.model.train() 
+        
         for epoch in range(num_epochs): 
-            total_loss = 0.0
-            num_batches = 0
+            total_epoch_loss, total_epoch_recon_loss, total_epoch_commit_loss = 0.0, 0.0, 0.0 
+            num_batches = 0 
+            progress_bar = tqdm(total=epoch_size, desc=f'Epoch {epoch + 1}/{num_epochs}') 
+            
+            while num_batches < epoch_size:
+                for i in range(self.grad_accum_every):
+                    is_last = i == (self.grad_accum_every - 1)
+                    maybe_no_sync = partial(self.accelerator.no_sync, self.model) if not is_last else nullcontext
 
-            progress_bar = tqdm(self.dataloader, desc=f'Epoch {epoch + 1}/{num_epochs}') 
+                    forward_kwargs = self.next_data_to_forward_kwargs(dl_iter)
 
-            for data in progress_bar: 
+                    with self.accelerator.autocast(), maybe_no_sync():
 
-                if isinstance(data, tuple): 
-                    forward_kwargs = dict(zip(self.data_kwargs, data))
+                        total_loss, (recon_loss, commit_loss) = self.model(
+                            **forward_kwargs,
+                            return_loss_breakdown = True
+                        )
 
-                elif isinstance(data, dict): 
-                    forward_kwargs = data 
-                
+                        self.accelerator.backward(total_loss / self.grad_accum_every)
 
-                with self.accelerator.autocast():
-                    loss = self.model(vertices = forward_kwargs['vertices'], faces= forward_kwargs['faces'])
-                    self.accelerator.backward(loss) 
-
+        
+                    current_loss = total_loss.item()
+                    total_epoch_loss += current_loss
+                    total_epoch_recon_loss += recon_loss.item()
+                    total_epoch_commit_loss += commit_loss.sum().item() 
+                    num_batches += 1
+                    
+                progress_bar.update(self.grad_accum_every)
+                progress_bar.set_postfix(loss=current_loss, recon_loss = round(recon_loss.item(),3), commit_loss = round(commit_loss.sum().item(),4))
+                    
                 self.optimizer.step()
                 self.optimizer.zero_grad()
-
-                current_loss = loss.item()
-                total_loss += current_loss
-                num_batches += 1
-                progress_bar.set_postfix(loss=current_loss)
-                
-            
  
-            avg_epoch_loss = total_loss / num_batches 
+             
+            avg_recon_loss = total_epoch_recon_loss / num_batches
+            avg_commit_loss = total_epoch_commit_loss / num_batches
+            avg_epoch_loss = total_epoch_loss / num_batches 
+            epochOut = f'Epoch {epoch + 1} average loss: {avg_epoch_loss} recon loss: {avg_recon_loss:.4f}: commit_loss {avg_commit_loss:.4f}'
+            
+    
             epoch_losses.append(avg_epoch_loss)
+            epoch_recon_losses.append(avg_recon_loss)
+            epoch_commit_losses.append(avg_commit_loss)
+
             if len(epoch_losses) >= 4 and avg_epoch_loss > 0:
                 avg_loss_improvement = sum(epoch_losses[-4:-1]) / 3 - avg_epoch_loss
-                outStr = f'Epoch {epoch + 1} average loss: {avg_epoch_loss}           avg loss speed: {avg_loss_improvement}'
-                 
+                epochOut += f'          avg loss speed: {avg_loss_improvement}' 
                 if avg_loss_improvement > 0 and avg_loss_improvement < 0.2:
                     epochs_until_0_3 = max(0, abs(avg_epoch_loss-0.3) / avg_loss_improvement)
                     if epochs_until_0_3> 0:
-                       outStr += f' epochs left: {epochs_until_0_3:.2f}'
+                       epochOut += f' epochs left: {epochs_until_0_3:.2f}'  
                        
-                self.print(outStr)
-            else:
-                self.print(f'Epoch {epoch + 1} average loss: {avg_epoch_loss}')
             self.wait()
+            
+            progress_bar.close()
+            self.print(epochOut)
 
             if self.checkpoint_every_epoch is not None and epoch != 0 and epoch % self.checkpoint_every_epoch == 0:
                 self.save(self.checkpoint_folder / f'mesh-autoencoder.ckpt.epoch_{epoch}_avg_loss_{avg_epoch_loss:.3f}.pt')
@@ -394,7 +410,9 @@ class MeshAutoencoderTrainer(Module):
         self.print('Training complete') 
         if diplay_graph:
             plt.figure(figsize=(10, 5))
-            plt.plot(range(1, num_epochs + 1), epoch_losses, marker='o')
+            plt.plot(range(1, num_epochs + 1), epoch_losses, marker='o', label='Total Loss')
+            plt.plot(range(1, num_epochs + 1), epoch_recon_losses, marker='o', label='Recon Loss')
+            plt.plot(range(1, num_epochs + 1), epoch_commit_losses, marker='o', label='Commit Loss') 
             plt.title('Training Loss Over Epochs')
             plt.xlabel('Epoch')
             plt.ylabel('Average Loss')
