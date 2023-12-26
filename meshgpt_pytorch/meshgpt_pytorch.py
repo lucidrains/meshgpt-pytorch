@@ -317,12 +317,13 @@ class GateLoopBlock(Module):
         dim,
         *,
         depth,
+        use_heinsen = True
     ):
         super().__init__()
         self.gateloops = ModuleList([])
 
         for _ in range(depth):
-            gateloop = SimpleGateLoopLayer(dim = dim)
+            gateloop = SimpleGateLoopLayer(dim = dim, use_heinsen = use_heinsen)
             self.gateloops.append(gateloop)
 
     def forward(
@@ -352,6 +353,99 @@ class GateLoopBlock(Module):
             x = torch.cat((prev, x), dim = -2)
 
         return x, new_caches
+
+# a drop-in replacement for autoencoder, for simply using discretization as codes of faces
+# for ablating the contribution of the autoencoder
+
+class MeshDiscretizer(Module):
+    @beartype
+    def __init__(
+        self,
+        num_discrete_coors = 128,
+        coor_continuous_range: Tuple[float, float] = (-1., 1.),
+        pad_id = -1
+    ):
+        super().__init__()
+        self.num_discrete_coors = num_discrete_coors
+        self.coor_continuous_range = coor_continuous_range
+
+        self.codebook_size = num_discrete_coors
+        self.num_quantizers = 3
+
+        self.discretize_face_coords = partial(discretize, num_discrete = num_discrete_coors, continuous_range = coor_continuous_range)
+        self.pad_id = pad_id
+
+    def decode_from_codes_to_faces(
+        self,
+        codes: Tensor,
+        face_mask: Optional[TensorType['b', 'n', bool]] = None,
+        return_discrete_codes = False
+    ):
+        codes = rearrange(codes, 'b ... -> b (...)')
+
+        if not exists(face_mask):
+            face_mask = reduce(codes != self.pad_id, 'b (nf nv q) -> b nf', 'all', nv = 3, q = self.num_quantizers)
+
+        # handle different code shapes
+
+        codes = rearrange(codes, 'b (n q) -> b n q', q = self.num_quantizers)
+
+        # back to continuous space
+
+        continuous_coors = undiscretize(
+            codes,
+            num_discrete = self.num_discrete_coors,
+            continuous_range = self.coor_continuous_range
+        )
+
+        continuous_coors = rearrange(continuous_coors, 'b (nf nv) q -> b nf nv q', nv = 3)
+
+        # mask out with nan
+
+        continuous_coors = continuous_coors.masked_fill(~rearrange(face_mask, 'b nf -> b nf 1 1'), float('nan'))
+
+        return continuous_coors, face_mask
+
+    @torch.no_grad()
+    def tokenize(self, **kwargs):
+        assert 'return_codes' not in kwargs
+        self.eval()
+
+        return self.forward(
+            return_codes = True,
+            **kwargs
+        )
+
+    @beartype
+    def forward(
+        self,
+        *,
+        vertices:       TensorType['b', 'nv', 3, float],
+        faces:          TensorType['b', 'nf', 3, int],
+        face_edges:     Optional[TensorType['b', 'e', 2, int]] = None,
+        return_codes = True,
+        **kwargs
+    ):
+        num_faces, device = faces.shape[1], faces.device
+
+        face_mask = reduce(faces != self.pad_id, 'b nf c -> b nf', 'all')
+
+        face_without_pad = faces.masked_fill(~rearrange(face_mask, 'b nf -> b nf 1'), 0)
+
+        faces_vertices = repeat(face_without_pad, 'b nf nv -> b nf nv c', c = vertices.shape[-1])
+        vertices = repeat(vertices, 'b nv c -> b nf nv c', nf = num_faces)
+
+        # continuous face coords
+
+        face_coords = vertices.gather(-2, faces_vertices)
+
+        # discretize vertices for face coordinate embedding
+
+        codes = self.discretize_face_coords(face_coords)
+        codes = rearrange(codes, 'b nf nv c -> b (nf nv) c') # 9 coordinates per face
+
+        codes = codes.masked_fill(~repeat(face_mask, 'b nf -> b (nf 3) 1'), self.pad_id)
+        return codes
 
 # main classes
 
@@ -483,7 +577,7 @@ class MeshAutoencoder(Module):
 
         for _ in range(local_attn_encoder_depth):
             self.encoder_local_attn_blocks.append(nn.ModuleList([
-                LocalMHA(dim = dim, **attn_kwargs, **local_attn_kwargs),
+                LocalMHA(dim = curr_dim, **attn_kwargs, **local_attn_kwargs),
                 nn.Sequential(RMSNorm(curr_dim), FeedForward(curr_dim, glu = True, dropout = ff_dropout))
             ]))
 
@@ -957,7 +1051,7 @@ class MeshTransformer(Module):
     @beartype
     def __init__(
         self,
-        autoencoder: MeshAutoencoder,
+        autoencoder: Union[MeshAutoencoder, MeshDiscretizer],
         *,
         dim: Union[int, Tuple[int, int]] = 512,
         max_seq_len = 8192,
@@ -972,6 +1066,7 @@ class MeshTransformer(Module):
         dropout = 0.,
         coarse_pre_gateloop_depth = 2,
         fine_pre_gateloop_depth = 2,
+        gateloop_use_heinsen = True,
         fine_attn_depth = 2,
         fine_attn_dim_head = 32,
         fine_attn_heads = 8,
@@ -995,7 +1090,7 @@ class MeshTransformer(Module):
 
         # they use axial positional embeddings
 
-        assert divisible_by(max_seq_len, 3 * self.num_quantizers) # 3 vertices per face, with D codes per vertex
+        assert divisible_by(max_seq_len, 3 * self.num_quantizers), f'max_seq_len ({max_seq_len}) must be divisible by (3 x {self.num_quantizers}) = {3 * self.num_quantizers}' # 3 vertices per face, with D codes per vertex
 
         self.token_embed = nn.Embedding(self.codebook_size + 1, dim)
 
@@ -1027,7 +1122,7 @@ class MeshTransformer(Module):
             nn.LayerNorm(dim)
         )
 
-        self.coarse_gateloop_block = GateLoopBlock(dim, depth = coarse_pre_gateloop_depth) if coarse_pre_gateloop_depth > 0 else nn.Identity()
+        self.coarse_gateloop_block = GateLoopBlock(dim, depth = coarse_pre_gateloop_depth, use_heinsen = gateloop_use_heinsen) if coarse_pre_gateloop_depth > 0 else nn.Identity()
 
         # main autoregressive attention network
         # attending to a face token
@@ -1133,11 +1228,7 @@ class MeshTransformer(Module):
 
         curr_length = codes.shape[-1]
 
-        # for now, kv cache disabled when conditioning on text
-
-        can_cache = cache_kv and (not self.condition_on_text or cond_scale == 1.)
-
-        cache = None
+        cache = (None, None)
 
         for i in tqdm(range(curr_length, self.max_seq_len)):
             # v1([q1] [q2] [q1] [q2] [q1] [q2]) v2([eos| q1] [q2] [q1] [q2] [q1] [q2]) -> 0 1 2 3 4 5 6 7 8 9 10 11 12 -> v1(F F F F F F) v2(T F F F F F) v3(T F F F F F)
@@ -1146,16 +1237,21 @@ class MeshTransformer(Module):
 
             output = self.forward_on_codes(
                 codes,
-                cache = cache,
                 text_embeds = text_embeds,
                 return_loss = False,
-                return_cache = can_cache,
+                return_cache = cache_kv,
                 append_eos = False,
-                cond_scale = cond_scale
+                cond_scale = cond_scale,
+                cfg_routed_kwargs = dict(
+                    cache = cache
+                )
             )
 
-            if can_cache:
+            if cache_kv:
                 logits, cache = output
+
+                if cond_scale == 1.:
+                    cache = (cache, None)
             else:
                 logits = output
 
@@ -1178,12 +1274,13 @@ class MeshTransformer(Module):
 
             is_eos_codes = (codes == self.eos_token_id)
 
-            if not is_eos_codes.any(dim = -1).all():
-                continue
+            if is_eos_codes.any(dim = -1).all():
+                break
 
-            mask = is_eos_codes.float().cumsum(dim = -1) >= 1
-            codes = codes.masked_fill(mask, self.pad_id)
-            break
+        # mask out to padding anything after the first eos
+
+        mask = is_eos_codes.float().cumsum(dim = -1) >= 1
+        codes = codes.masked_fill(mask, self.pad_id)
 
         # remove a potential extra token from eos, if breaked early
 
@@ -1212,14 +1309,16 @@ class MeshTransformer(Module):
         vertices:       TensorType['b', 'nv', 3, int],
         faces:          TensorType['b', 'nf', 3, int],
         face_edges:     Optional[TensorType['b', 'e', 2, int]] = None,
+        codes:          Optional[Tensor] = None,
         cache:          Optional[LayerIntermediates] = None,
         **kwargs
     ):
-        codes = self.autoencoder.tokenize(
-            vertices = vertices,
-            faces = faces,
-            face_edges = face_edges
-        )
+        if not exists(codes):
+            codes = self.autoencoder.tokenize(
+                vertices = vertices,
+                faces = faces,
+                face_edges = face_edges
+            )
 
         return self.forward_on_codes(codes, cache = cache, **kwargs)
 
