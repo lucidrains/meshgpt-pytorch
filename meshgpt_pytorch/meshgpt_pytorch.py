@@ -996,6 +996,7 @@ class MeshAutoencoder(Module):
             recon_faces = rearrange(recon_faces, 'b nf (nv c) -> b nf nv c', nv = 3)
             face_mask = rearrange(face_mask, 'b nf -> b nf 1 1')
             recon_faces = recon_faces.masked_fill(~face_mask, float('nan'))
+            face_mask = rearrange(face_mask, 'b nf 1 1 -> b nf')
 
         if only_return_recon_faces:
             return recon_faces
