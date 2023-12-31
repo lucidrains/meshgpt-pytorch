@@ -1132,7 +1132,7 @@ class MeshTransformer(Module):
             depth = attn_depth,
             dim_head = attn_dim_head,
             heads = attn_heads,
-            attn_flash = flash_attn,
+            flash_attn = flash_attn,
             attn_dropout = dropout,
             ff_dropout = dropout,
             cross_attend = condition_on_text,
@@ -1155,7 +1155,7 @@ class MeshTransformer(Module):
             depth = fine_attn_depth,
             dim_head = attn_dim_head,
             heads = attn_heads,
-            attn_flash = flash_attn,
+            flash_attn = flash_attn,
             attn_dropout = dropout,
             ff_dropout = dropout,
             **attn_kwargs
