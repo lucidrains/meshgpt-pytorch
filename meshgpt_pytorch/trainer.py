@@ -662,69 +662,69 @@ class MeshTransformerTrainer(Module):
 
         self.print('training complete')
  
-        
-def train(self, num_epochs, stop_at_loss = None, diplay_graph = False):
-        epoch_losses = [] 
-        epoch_size = len(self.dataloader)
-        self.model.train() 
-        
-        for epoch in range(num_epochs): 
-            total_epoch_loss = 0.0 
             
-            progress_bar = tqdm(enumerate(self.dataloader), desc=f'Epoch {epoch + 1}/{num_epochs}', total=len(self.dataloader))
-            for batch_idx, batch in progress_bar: 
-                    
-                is_last = (batch_idx+1) % self.grad_accum_every == 0
-                maybe_no_sync = partial(self.accelerator.no_sync, self.model) if not is_last else nullcontext
-
-                with self.accelerator.autocast(), maybe_no_sync(): 
-                    total_loss = self.model(**batch) 
-                    self.accelerator.backward(total_loss / self.grad_accum_every)
-
-                current_loss = total_loss.item()
-                total_epoch_loss += current_loss  
-                
-                progress_bar.set_postfix(loss=current_loss) 
-                    
-                if is_last or (batch_idx + 1 == len(self.dataloader)): 
-                    self.optimizer.step()
-                    self.optimizer.zero_grad() 
-                    
-            avg_epoch_loss = total_epoch_loss / epoch_size 
-            epochOut = f'Epoch {epoch + 1} average loss: {avg_epoch_loss}' 
-        
-        
-            epoch_losses.append(avg_epoch_loss) 
-
-            if len(epoch_losses) >= 4 and avg_epoch_loss > 0:
-                avg_loss_improvement = sum(epoch_losses[-4:-1]) / 3 - avg_epoch_loss
-                epochOut += f'          avg loss speed: {avg_loss_improvement}' 
-                if avg_loss_improvement > 0 and avg_loss_improvement < 0.2:
-                    epochs_until_0_3 = max(0, abs(avg_epoch_loss-0.3) / avg_loss_improvement)
-                    if epochs_until_0_3> 0:
-                        epochOut += f' epochs left: {epochs_until_0_3:.2f}'  
-                    
-            self.wait()
-            self.print(epochOut)
+    def train(self, num_epochs, stop_at_loss = None, diplay_graph = False):
+            epoch_losses = [] 
+            epoch_size = len(self.dataloader)
+            self.model.train() 
             
-            if self.checkpoint_every_epoch is not None and epoch != 0 and epoch % self.checkpoint_every_epoch == 0:
-                self.save(self.checkpoint_folder / f'mesh-transformer.ckpt.epoch_{epoch}_avg_loss_{avg_epoch_loss:.3f}.pt')
+            for epoch in range(num_epochs): 
+                total_epoch_loss = 0.0 
                 
-            if stop_at_loss is not None and avg_epoch_loss < stop_at_loss: 
-                self.print(f'Stopping training at epoch {epoch} with average loss {avg_epoch_loss}')
-                if self.checkpoint_every_epoch is not None:
-                    self.save(self.checkpoint_folder / f'mesh-transformer.ckpt.stop_at_loss_avg_loss_{avg_epoch_loss:.3f}.pt') 
-                break   
- 
+                progress_bar = tqdm(enumerate(self.dataloader), desc=f'Epoch {epoch + 1}/{num_epochs}', total=len(self.dataloader))
+                for batch_idx, batch in progress_bar: 
+                        
+                    is_last = (batch_idx+1) % self.grad_accum_every == 0
+                    maybe_no_sync = partial(self.accelerator.no_sync, self.model) if not is_last else nullcontext
 
-        self.print('Training complete') 
-        if diplay_graph:
-            plt.figure(figsize=(10, 5))
-            plt.plot(range(1, len(epoch_losses) + 1), epoch_losses, marker='o', label='Total Loss') 
-            plt.title('Training Loss Over Epochs')
-            plt.xlabel('Epoch')
-            plt.ylabel('Average Loss')
-            plt.grid(True)
-            plt.show()
-        return epoch_losses[-1]
- 
+                    with self.accelerator.autocast(), maybe_no_sync(): 
+                        total_loss = self.model(**batch) 
+                        self.accelerator.backward(total_loss / self.grad_accum_every)
+
+                    current_loss = total_loss.item()
+                    total_epoch_loss += current_loss  
+                    
+                    progress_bar.set_postfix(loss=current_loss) 
+                        
+                    if is_last or (batch_idx + 1 == len(self.dataloader)): 
+                        self.optimizer.step()
+                        self.optimizer.zero_grad() 
+                        
+                avg_epoch_loss = total_epoch_loss / epoch_size 
+                epochOut = f'Epoch {epoch + 1} average loss: {avg_epoch_loss}' 
+            
+            
+                epoch_losses.append(avg_epoch_loss) 
+
+                if len(epoch_losses) >= 4 and avg_epoch_loss > 0:
+                    avg_loss_improvement = sum(epoch_losses[-4:-1]) / 3 - avg_epoch_loss
+                    epochOut += f'          avg loss speed: {avg_loss_improvement}' 
+                    if avg_loss_improvement > 0 and avg_loss_improvement < 0.2:
+                        epochs_until_0_3 = max(0, abs(avg_epoch_loss-0.3) / avg_loss_improvement)
+                        if epochs_until_0_3> 0:
+                            epochOut += f' epochs left: {epochs_until_0_3:.2f}'  
+                        
+                self.wait()
+                self.print(epochOut)
+                
+                if self.checkpoint_every_epoch is not None and epoch != 0 and epoch % self.checkpoint_every_epoch == 0:
+                    self.save(self.checkpoint_folder / f'mesh-transformer.ckpt.epoch_{epoch}_avg_loss_{avg_epoch_loss:.3f}.pt')
+                    
+                if stop_at_loss is not None and avg_epoch_loss < stop_at_loss: 
+                    self.print(f'Stopping training at epoch {epoch} with average loss {avg_epoch_loss}')
+                    if self.checkpoint_every_epoch is not None:
+                        self.save(self.checkpoint_folder / f'mesh-transformer.ckpt.stop_at_loss_avg_loss_{avg_epoch_loss:.3f}.pt') 
+                    break   
+    
+
+            self.print('Training complete') 
+            if diplay_graph:
+                plt.figure(figsize=(10, 5))
+                plt.plot(range(1, len(epoch_losses) + 1), epoch_losses, marker='o', label='Total Loss') 
+                plt.title('Training Loss Over Epochs')
+                plt.xlabel('Epoch')
+                plt.ylabel('Average Loss')
+                plt.grid(True)
+                plt.show()
+            return epoch_losses[-1]
+    
