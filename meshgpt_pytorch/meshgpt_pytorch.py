@@ -1066,7 +1066,7 @@ class MeshTransformer(Module):
         dropout = 0.,
         coarse_pre_gateloop_depth = 2,
         fine_pre_gateloop_depth = 2,
-        gateloop_use_heinsen = True,
+        gateloop_use_heinsen = False,
         fine_attn_depth = 2,
         fine_attn_dim_head = 32,
         fine_attn_heads = 8,
