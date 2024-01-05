@@ -1504,6 +1504,13 @@ class MeshTransformer(Module):
         if exists(cache):
             fine_vertex_codes = fine_vertex_codes[:, -1:]
 
+            if exists(fine_cache):
+                for attn_intermediate in fine_cache.attn_intermediates:
+                    ck, cv = attn_intermediate.cached_kv
+                    ck, cv = map(lambda t: rearrange(t, '(b nf) ... -> b nf ...', b = batch), (ck, cv))
+                    ck, cv = map(lambda t: t[:, -1], (ck, cv))
+                    attn_intermediate.cached_kv = (ck, cv)
+
         one_face = fine_vertex_codes.shape[1] == 1
 
         fine_vertex_codes = rearrange(fine_vertex_codes, 'b nf n d -> (b nf) n d')
