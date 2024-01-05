@@ -6,6 +6,7 @@ import torch
 from torch import nn, Tensor, einsum
 from torch.nn import Module, ModuleList
 import torch.nn.functional as F
+from torch.utils.checkpoint import checkpoint
 from torch.cuda.amp import autocast
 
 from torchtyping import TensorType
@@ -506,7 +507,8 @@ class MeshAutoencoder(Module):
         sageconv_dropout = 0.,
         attn_dropout = 0.,
         ff_dropout = 0.,
-        resnet_dropout = 0
+        resnet_dropout = 0,
+        checkpoint_quantizer = False
     ):
         super().__init__()
 
@@ -608,6 +610,8 @@ class MeshAutoencoder(Module):
                 **rvq_kwargs,
                 **rq_kwargs
             )
+
+        self.checkpoint_quantizer = checkpoint_quantizer # whether to memory checkpoint the quantizer
 
         self.pad_id = pad_id # for variable lengthed faces, padding quantized ids will be set to this value
 
@@ -799,14 +803,25 @@ class MeshAutoencoder(Module):
 
         # rvq specific kwargs
 
-        quantize_kwargs = dict()
+        quantize_kwargs = dict(mask = mask)
 
         if isinstance(self.quantizer, ResidualVQ):
             quantize_kwargs.update(sample_codebook_temp = rvq_sample_codebook_temp)
 
+        # a quantize function that makes it memory checkpointable
+
+        def quantize_wrapper_fn(inp):
+            unquantized, quantize_kwargs = inp
+            return self.quantizer(unquantized, **quantize_kwargs)
+
+        # maybe checkpoint the quantize fn
+
+        if self.checkpoint_quantizer:
+            quantize_wrapper_fn = partial(checkpoint, quantize_wrapper_fn, use_reentrant = False)
+
         # residual VQ
 
-        quantized, codes, commit_loss = self.quantizer(averaged_vertices, mask = mask, **quantize_kwargs)
+        quantized, codes, commit_loss = quantize_wrapper_fn((averaged_vertices, quantize_kwargs))
 
         # gather quantized vertexes back to faces for decoding
         # now the faces have quantized vertices
@@ -996,6 +1011,7 @@ class MeshAutoencoder(Module):
             recon_faces = rearrange(recon_faces, 'b nf (nv c) -> b nf nv c', nv = 3)
             face_mask = rearrange(face_mask, 'b nf -> b nf 1 1')
             recon_faces = recon_faces.masked_fill(~face_mask, float('nan'))
+            face_mask = rearrange(face_mask, 'b nf 1 1 -> b nf')
 
         if only_return_recon_faces:
             return recon_faces
@@ -1065,7 +1081,7 @@ class MeshTransformer(Module):
         dropout = 0.,
         coarse_pre_gateloop_depth = 2,
         fine_pre_gateloop_depth = 2,
-        gateloop_use_heinsen = True,
+        gateloop_use_heinsen = False,
         fine_attn_depth = 2,
         fine_attn_dim_head = 32,
         fine_attn_heads = 8,
@@ -1121,7 +1137,7 @@ class MeshTransformer(Module):
             nn.LayerNorm(dim)
         )
 
-        self.coarse_gateloop_block = GateLoopBlock(dim, depth = coarse_pre_gateloop_depth, use_heinsen = gateloop_use_heinsen) if coarse_pre_gateloop_depth > 0 else nn.Identity()
+        self.coarse_gateloop_block = GateLoopBlock(dim, depth = coarse_pre_gateloop_depth, use_heinsen = gateloop_use_heinsen) if coarse_pre_gateloop_depth > 0 else None
 
         # main autoregressive attention network
         # attending to a face token
@@ -1131,7 +1147,7 @@ class MeshTransformer(Module):
             depth = attn_depth,
             dim_head = attn_dim_head,
             heads = attn_heads,
-            flash_attn = flash_attn,
+            attn_flash = flash_attn,
             attn_dropout = dropout,
             ff_dropout = dropout,
             cross_attend = condition_on_text,
@@ -1145,7 +1161,7 @@ class MeshTransformer(Module):
 
         # address a weakness in attention
 
-        self.fine_gateloop_block = GateLoopBlock(dim, depth = fine_pre_gateloop_depth) if fine_pre_gateloop_depth > 0 else nn.Identity()
+        self.fine_gateloop_block = GateLoopBlock(dim, depth = fine_pre_gateloop_depth) if fine_pre_gateloop_depth > 0 else None
 
         # decoding the vertices, 2-stage hierarchy
 
@@ -1154,7 +1170,7 @@ class MeshTransformer(Module):
             depth = fine_attn_depth,
             dim_head = attn_dim_head,
             heads = attn_heads,
-            flash_attn = flash_attn,
+            attn_flash = flash_attn,
             attn_dropout = dropout,
             ff_dropout = dropout,
             **attn_kwargs
@@ -1204,8 +1220,11 @@ class MeshTransformer(Module):
         text_embeds: Optional[Tensor] = None,
         cond_scale = 1.,
         cache_kv = True,
+        max_seq_len = None,
         face_coords_to_file: Optional[Callable[[Tensor], Any]] = None
     ):
+        max_seq_len = default(max_seq_len, self.max_seq_len)
+
         if exists(prompt):
             assert not exists(batch_size)
 
@@ -1229,7 +1248,7 @@ class MeshTransformer(Module):
 
         cache = (None, None)
 
-        for i in tqdm(range(curr_length, self.max_seq_len)):
+        for i in tqdm(range(curr_length, max_seq_len)):
             # v1([q1] [q2] [q1] [q2] [q1] [q2]) v2([eos| q1] [q2] [q1] [q2] [q1] [q2]) -> 0 1 2 3 4 5 6 7 8 9 10 11 12 -> v1(F F F F F F) v2(T F F F F F) v3(T F F F F F)
 
             can_eos = i != 0 and divisible_by(i, self.num_quantizers * 3)  # only allow for eos to be decoded at the end of each face, defined as 3 vertices with D residual VQ codes
@@ -1458,7 +1477,8 @@ class MeshTransformer(Module):
         # attention on face codes (coarse)
 
         if need_call_first_transformer:
-            face_codes, coarse_gateloop_cache = self.coarse_gateloop_block(face_codes, cache = coarse_gateloop_cache)
+            if exists(self.coarse_gateloop_block):
+                face_codes, coarse_gateloop_cache = self.coarse_gateloop_block(face_codes, cache = coarse_gateloop_cache)
 
             attended_face_codes, coarse_cache = self.decoder(
                 face_codes,
@@ -1488,7 +1508,7 @@ class MeshTransformer(Module):
 
         # gateloop layers
 
-        if not isinstance(self.fine_gateloop_block, nn.Identity):
+        if exists(self.fine_gateloop_block):
             fine_vertex_codes = rearrange(fine_vertex_codes, 'b nf n d -> b (nf n) d')
             orig_length = fine_vertex_codes.shape[-2]
             fine_vertex_codes = fine_vertex_codes[:, :(code_len + 1)]
@@ -1502,6 +1522,13 @@ class MeshTransformer(Module):
 
         if exists(cache):
             fine_vertex_codes = fine_vertex_codes[:, -1:]
+
+            if exists(fine_cache):
+                for attn_intermediate in fine_cache.attn_intermediates:
+                    ck, cv = attn_intermediate.cached_kv
+                    ck, cv = map(lambda t: rearrange(t, '(b nf) ... -> b nf ...', b = batch), (ck, cv))
+                    ck, cv = map(lambda t: t[:, -1, :, :curr_vertex_pos], (ck, cv))
+                    attn_intermediate.cached_kv = (ck, cv)
 
         one_face = fine_vertex_codes.shape[1] == 1
 
