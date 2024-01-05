@@ -1205,8 +1205,11 @@ class MeshTransformer(Module):
         text_embeds: Optional[Tensor] = None,
         cond_scale = 1.,
         cache_kv = True,
+        max_seq_len = None,
         face_coords_to_file: Optional[Callable[[Tensor], Any]] = None
     ):
+        max_seq_len = default(max_seq_len, self.max_seq_len)
+
         if exists(prompt):
             assert not exists(batch_size)
 
@@ -1230,7 +1233,7 @@ class MeshTransformer(Module):
 
         cache = (None, None)
 
-        for i in tqdm(range(curr_length, self.max_seq_len)):
+        for i in tqdm(range(curr_length, max_seq_len)):
             # v1([q1] [q2] [q1] [q2] [q1] [q2]) v2([eos| q1] [q2] [q1] [q2] [q1] [q2]) -> 0 1 2 3 4 5 6 7 8 9 10 11 12 -> v1(F F F F F F) v2(T F F F F F) v3(T F F F F F)
 
             can_eos = i != 0 and divisible_by(i, self.num_quantizers * 3)  # only allow for eos to be decoded at the end of each face, defined as 3 vertices with D residual VQ codes
@@ -1503,6 +1506,13 @@ class MeshTransformer(Module):
 
         if exists(cache):
             fine_vertex_codes = fine_vertex_codes[:, -1:]
+
+            if exists(fine_cache):
+                for attn_intermediate in fine_cache.attn_intermediates:
+                    ck, cv = attn_intermediate.cached_kv
+                    ck, cv = map(lambda t: rearrange(t, '(b nf) ... -> b nf ...', b = batch), (ck, cv))
+                    ck, cv = map(lambda t: t[:, -1, :, :curr_vertex_pos], (ck, cv))
+                    attn_intermediate.cached_kv = (ck, cv)
 
         one_face = fine_vertex_codes.shape[1] == 1
 
