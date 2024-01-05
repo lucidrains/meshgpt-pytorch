@@ -6,6 +6,7 @@ import torch
 from torch import nn, Tensor, einsum
 from torch.nn import Module, ModuleList
 import torch.nn.functional as F
+from torch.utils.checkpoint import checkpoint
 from torch.cuda.amp import autocast
 
 from torchtyping import TensorType
@@ -56,6 +57,9 @@ def exists(v):
 
 def default(v, d):
     return v if exists(v) else d
+
+def identity(t):
+    return t
 
 def first(it):
     return it[0]
@@ -506,7 +510,8 @@ class MeshAutoencoder(Module):
         sageconv_dropout = 0.,
         attn_dropout = 0.,
         ff_dropout = 0.,
-        resnet_dropout = 0
+        resnet_dropout = 0,
+        checkpoint_quantizer = False
     ):
         super().__init__()
 
@@ -608,6 +613,8 @@ class MeshAutoencoder(Module):
                 **rvq_kwargs,
                 **rq_kwargs
             )
+
+        self.checkpoint_quantizer = checkpoint_quantizer # whether to memory checkpoint the quantizer
 
         self.pad_id = pad_id # for variable lengthed faces, padding quantized ids will be set to this value
 
@@ -799,14 +806,25 @@ class MeshAutoencoder(Module):
 
         # rvq specific kwargs
 
-        quantize_kwargs = dict()
+        quantize_kwargs = dict(mask = mask)
 
         if isinstance(self.quantizer, ResidualVQ):
             quantize_kwargs.update(sample_codebook_temp = rvq_sample_codebook_temp)
 
+        # a quantize function that makes it memory checkpointable
+
+        def quantize_wrapper_fn(inp):
+            unquantized, quantize_kwargs = inp
+            return self.quantizer(unquantized, **quantize_kwargs)
+
+        # maybe checkpoint the quantize fn
+
+        if self.checkpoint_quantizer:
+            quantize_wrapper_fn = partial(checkpoint, quantize_wrapper_fn, use_reentrant = False)
+
         # residual VQ
 
-        quantized, codes, commit_loss = self.quantizer(averaged_vertices, mask = mask, **quantize_kwargs)
+        quantized, codes, commit_loss = quantize_wrapper_fn((averaged_vertices, quantize_kwargs))
 
         # gather quantized vertexes back to faces for decoding
         # now the faces have quantized vertices
