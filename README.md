@@ -159,10 +159,9 @@ mesh_token_ids = autoencoder.tokenize(
 - [x] fix kv caching for two-staged hierarchical transformer - 7x faster now, and faster than original non-hierarchical transformer
 - [x] fix caching for gateloop layers
 - [x] allow for customization of model dimensions of fine vs coarse attention network
-
-- [ ] figure out if autoencoder is really necessary
-    - [ ] when mesh discretizer is passed in, one can inject inter-face attention with the relative distance
-    - [ ] additional embeddings (angles, area, normal), can also be appended before coarse transformer attention
+- [x] figure out if autoencoder is really necessary - it is necessary, ablations are in the paper
+    - [x] when mesh discretizer is passed in, one can inject inter-face attention with the relative distance
+    - [x] additional embeddings (angles, area, normal), can also be appended before coarse transformer attention
 
 - [ ] make transformer efficient
     - [ ] reversible networks
