@@ -6,6 +6,7 @@ import torch
 from torch import nn, Tensor, einsum
 from torch.nn import Module, ModuleList
 import torch.nn.functional as F
+from torch.utils.checkpoint import checkpoint
 from torch.cuda.amp import autocast
 
 from torchtyping import TensorType
@@ -56,6 +57,9 @@ def exists(v):
 
 def default(v, d):
     return v if exists(v) else d
+
+def identity(t):
+    return t
 
 def first(it):
     return it[0]
@@ -506,7 +510,8 @@ class MeshAutoencoder(Module):
         sageconv_dropout = 0.,
         attn_dropout = 0.,
         ff_dropout = 0.,
-        resnet_dropout = 0
+        resnet_dropout = 0,
+        checkpoint_quantizer = False
     ):
         super().__init__()
 
@@ -608,6 +613,8 @@ class MeshAutoencoder(Module):
                 **rvq_kwargs,
                 **rq_kwargs
             )
+
+        self.checkpoint_quantizer = checkpoint_quantizer # whether to memory checkpoint the quantizer
 
         self.pad_id = pad_id # for variable lengthed faces, padding quantized ids will be set to this value
 
@@ -799,14 +806,25 @@ class MeshAutoencoder(Module):
 
         # rvq specific kwargs
 
-        quantize_kwargs = dict()
+        quantize_kwargs = dict(mask = mask)
 
         if isinstance(self.quantizer, ResidualVQ):
             quantize_kwargs.update(sample_codebook_temp = rvq_sample_codebook_temp)
 
+        # a quantize function that makes it memory checkpointable
+
+        def quantize_wrapper_fn(inp):
+            unquantized, quantize_kwargs = inp
+            return self.quantizer(unquantized, **quantize_kwargs)
+
+        # maybe checkpoint the quantize fn
+
+        if self.checkpoint_quantizer:
+            quantize_wrapper_fn = partial(checkpoint, quantize_wrapper_fn, use_reentrant = False)
+
         # residual VQ
 
-        quantized, codes, commit_loss = self.quantizer(averaged_vertices, mask = mask, **quantize_kwargs)
+        quantized, codes, commit_loss = quantize_wrapper_fn((averaged_vertices, quantize_kwargs))
 
         # gather quantized vertexes back to faces for decoding
         # now the faces have quantized vertices
@@ -1067,7 +1085,7 @@ class MeshTransformer(Module):
         dropout = 0.,
         coarse_pre_gateloop_depth = 2,
         fine_pre_gateloop_depth = 2,
-        gateloop_use_heinsen = True,
+        gateloop_use_heinsen = False,
         fine_attn_depth = 2,
         fine_attn_dim_head = 32,
         fine_attn_heads = 8,
@@ -1206,8 +1224,11 @@ class MeshTransformer(Module):
         text_embeds: Optional[Tensor] = None,
         cond_scale = 1.,
         cache_kv = True,
+        max_seq_len = None,
         face_coords_to_file: Optional[Callable[[Tensor], Any]] = None
     ):
+        max_seq_len = default(max_seq_len, self.max_seq_len)
+
         if exists(prompt):
             assert not exists(batch_size)
 
@@ -1231,7 +1252,7 @@ class MeshTransformer(Module):
 
         cache = (None, None)
 
-        for i in tqdm(range(curr_length, self.max_seq_len)):
+        for i in tqdm(range(curr_length, max_seq_len)):
             # v1([q1] [q2] [q1] [q2] [q1] [q2]) v2([eos| q1] [q2] [q1] [q2] [q1] [q2]) -> 0 1 2 3 4 5 6 7 8 9 10 11 12 -> v1(F F F F F F) v2(T F F F F F) v3(T F F F F F)
 
             can_eos = i != 0 and divisible_by(i, self.num_quantizers * 3)  # only allow for eos to be decoded at the end of each face, defined as 3 vertices with D residual VQ codes
@@ -1504,6 +1525,13 @@ class MeshTransformer(Module):
 
         if exists(cache):
             fine_vertex_codes = fine_vertex_codes[:, -1:]
+
+            if exists(fine_cache):
+                for attn_intermediate in fine_cache.attn_intermediates:
+                    ck, cv = attn_intermediate.cached_kv
+                    ck, cv = map(lambda t: rearrange(t, '(b nf) ... -> b nf ...', b = batch), (ck, cv))
+                    ck, cv = map(lambda t: t[:, -1, :, :curr_vertex_pos], (ck, cv))
+                    attn_intermediate.cached_kv = (ck, cv)
 
         one_face = fine_vertex_codes.shape[1] == 1
 
