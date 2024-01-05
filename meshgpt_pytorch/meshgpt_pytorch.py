@@ -58,9 +58,6 @@ def exists(v):
 def default(v, d):
     return v if exists(v) else d
 
-def identity(t):
-    return t
-
 def first(it):
     return it[0]
 
@@ -1141,7 +1138,7 @@ class MeshTransformer(Module):
             nn.LayerNorm(dim)
         )
 
-        self.coarse_gateloop_block = GateLoopBlock(dim, depth = coarse_pre_gateloop_depth, use_heinsen = gateloop_use_heinsen) if coarse_pre_gateloop_depth > 0 else nn.Identity()
+        self.coarse_gateloop_block = GateLoopBlock(dim, depth = coarse_pre_gateloop_depth, use_heinsen = gateloop_use_heinsen) if coarse_pre_gateloop_depth > 0 else None
 
         # main autoregressive attention network
         # attending to a face token
@@ -1165,7 +1162,7 @@ class MeshTransformer(Module):
 
         # address a weakness in attention
 
-        self.fine_gateloop_block = GateLoopBlock(dim, depth = fine_pre_gateloop_depth) if fine_pre_gateloop_depth > 0 else nn.Identity()
+        self.fine_gateloop_block = GateLoopBlock(dim, depth = fine_pre_gateloop_depth) if fine_pre_gateloop_depth > 0 else None
 
         # decoding the vertices, 2-stage hierarchy
 
@@ -1481,7 +1478,8 @@ class MeshTransformer(Module):
         # attention on face codes (coarse)
 
         if need_call_first_transformer:
-            face_codes, coarse_gateloop_cache = self.coarse_gateloop_block(face_codes, cache = coarse_gateloop_cache)
+            if exists(self.coarse_gateloop_block):
+                face_codes, coarse_gateloop_cache = self.coarse_gateloop_block(face_codes, cache = coarse_gateloop_cache)
 
             attended_face_codes, coarse_cache = self.decoder(
                 face_codes,
@@ -1511,7 +1509,7 @@ class MeshTransformer(Module):
 
         # gateloop layers
 
-        if not isinstance(self.fine_gateloop_block, nn.Identity):
+        if exists(self.fine_gateloop_block):
             fine_vertex_codes = rearrange(fine_vertex_codes, 'b nf n d -> b (nf n) d')
             orig_length = fine_vertex_codes.shape[-2]
             fine_vertex_codes = fine_vertex_codes[:, :(code_len + 1)]
