@@ -66,25 +66,25 @@ class MeshDataset(Dataset):
         for item in loaded_data["arr_0"]:
             data.append(item)  
         print(f"[MeshDataset] Loaded {len(data)} entrys")
-        return cls(data)
-     
-
-            
-    def generate_face_edges(self): 
-        for i in range(0, len(self.data)):  
-            item = self.data[i]
-            item['face_edges'] =  derive_face_edges_from_faces(item['faces']) 
-            
-        desired_order = ['vertices', 'faces', 'face_edges', 'texts'] 
+        return cls(data) 
+    def sort_dataset_keys(self):
+        desired_order = ['vertices', 'faces', 'face_edges', 'texts','text_embeds','codes'] 
         self.data = [
-            {key: d[key] for key in desired_order} for d in self.data
+            {key: d[key] for key in desired_order if key in d} for d in self.data
         ]
-        print(f"[MeshDataset] Generated face_edges for {len(self.data)} entrys")
+       
+    def generate_face_edges(self): 
+        i = 0
+        for item in self.data:
+            if 'face_edges' not in item:
+                item['face_edges'] =  derive_face_edges_from_faces(item['faces']) 
+                i += 1
+            
+        self.sort_dataset_keys()
+        print(f"[MeshDataset] Generated face_edges for {i}/{len(self.data)} entrys")
 
     def generate_codes(self, autoencoder : MeshAutoencoder): 
-        for i in range(0, len(self.data)):  
-            item = self.data[i]  
-             
+        for item in self.data: 
             codes = autoencoder.tokenize(
                 vertices = item['vertices'],
                 faces = item['faces'],
@@ -92,6 +92,7 @@ class MeshDataset(Dataset):
             ) 
             item['codes'] = codes  
  
+        self.sort_dataset_keys()
         print(f"[MeshDataset] Generated codes for {len(self.data)} entrys")
     
     def embed_texts(self, transformer : MeshTransformer): 
@@ -102,6 +103,7 @@ class MeshDataset(Dataset):
         text_embedding_dict = dict(zip(unique_texts, text_embeddings))
  
         for item in self.data:
-            text_value = item['texts']
-            item['text_embeds'] = text_embedding_dict.get(text_value, None)
-            del item['texts']
+            if 'texts' in item:  
+                item['text_embeds'] = text_embedding_dict.get(item['texts'], None)
+                del item['texts'] 
+        self.sort_dataset_keys()
