@@ -355,99 +355,6 @@ class GateLoopBlock(Module):
 
         return x, new_caches
 
-# a drop-in replacement for autoencoder, for simply using discretization as codes of faces
-# for ablating the contribution of the autoencoder
-
-class MeshDiscretizer(Module):
-    @beartype
-    def __init__(
-        self,
-        num_discrete_coors = 128,
-        coor_continuous_range: Tuple[float, float] = (-1., 1.),
-        pad_id = -1
-    ):
-        super().__init__()
-        self.num_discrete_coors = num_discrete_coors
-        self.coor_continuous_range = coor_continuous_range
-
-        self.codebook_size = num_discrete_coors
-        self.num_quantizers = 3
-
-        self.discretize_face_coords = partial(discretize, num_discrete = num_discrete_coors, continuous_range = coor_continuous_range)
-        self.pad_id = pad_id
-
-    def decode_from_codes_to_faces(
-        self,
-        codes: Tensor,
-        face_mask: Optional[TensorType['b', 'n', bool]] = None,
-        return_discrete_codes = False
-    ):
-        codes = rearrange(codes, 'b ... -> b (...)')
-
-        if not exists(face_mask):
-            face_mask = reduce(codes != self.pad_id, 'b (nf nv q) -> b nf', 'all', nv = 3, q = self.num_quantizers)
-
-        # handle different code shapes
-
-        codes = rearrange(codes, 'b (n q) -> b n q', q = self.num_quantizers)
-
-        # back to continuous space
-
-        continuous_coors = undiscretize(
-            codes,
-            num_discrete = self.num_discrete_coors,
-            continuous_range = self.coor_continuous_range
-        )
-
-        continuous_coors = rearrange(continuous_coors, 'b (nf nv) q -> b nf nv q', nv = 3)
-
-        # mask out with nan
-
-        continuous_coors = continuous_coors.masked_fill(~rearrange(face_mask, 'b nf -> b nf 1 1'), float('nan'))
-
-        return continuous_coors, face_mask
-
-    @torch.no_grad()
-    def tokenize(self, **kwargs):
-        assert 'return_codes' not in kwargs
-        self.eval()
-
-        return self.forward(
-            return_codes = True,
-            **kwargs
-        )
-
-    @beartype
-    def forward(
-        self,
-        *,
-        vertices:       TensorType['b', 'nv', 3, float],
-        faces:          TensorType['b', 'nf', 3, int],
-        face_edges:     Optional[TensorType['b', 'e', 2, int]] = None,
-        return_codes = True,
-        **kwargs
-    ):
-        num_faces, device = faces.shape[1], faces.device
-
-        face_mask = reduce(faces != self.pad_id, 'b nf c -> b nf', 'all')
-
-        face_without_pad = faces.masked_fill(~rearrange(face_mask, 'b nf -> b nf 1'), 0)
-
-        faces_vertices = repeat(face_without_pad, 'b nf nv -> b nf nv c', c = vertices.shape[-1])
-        vertices = repeat(vertices, 'b nv c -> b nf nv c', nf = num_faces)
-
-        # continuous face coords
-
-        face_coords = vertices.gather(-2, faces_vertices)
-
-        # discretize vertices for face coordinate embedding
-
-        codes = self.discretize_face_coords(face_coords)
-        codes = rearrange(codes, 'b nf nv c -> b (nf nv) c') # 9 coordinates per face
-
-        codes = codes.masked_fill(~repeat(face_mask, 'b nf -> b (nf 3) 1'), self.pad_id)
-        return codes
-
 # main classes
 
 @save_load(version = __version__)
@@ -1067,7 +974,7 @@ class MeshTransformer(Module):
     @beartype
     def __init__(
         self,
-        autoencoder: Union[MeshAutoencoder, MeshDiscretizer],
+        autoencoder: MeshAutoencoder,
         *,
         dim: Union[int, Tuple[int, int]] = 512,
         max_seq_len = 8192,
