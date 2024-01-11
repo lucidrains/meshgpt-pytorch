@@ -160,6 +160,7 @@ def cache_text_embeds_for_dataset(
 def cache_face_edges_for_dataset(
     max_edges_len: int,
     cache_path: str = './face_edges_cache',
+    assert_edge_len_lt_max: bool = True,
     pad_id = -1
 ):
     # create path to cache folder
@@ -200,6 +201,10 @@ def cache_face_edges_for_dataset(
             # cache
 
             face_edges = derive_face_edges_from_faces(faces, pad_id = pad_id)
+
+            edge_len = face_edges.shape[0]
+            assert not assert_edge_len_lt_max or (edge_len <= max_edges_len), f'mesh #{idx} has {edge_len} which exceeds the cache length of {max_edges_len}'
+
             face_edges = pad_or_slice_to(face_edges, max_edges_len, dim = 0, pad_value = pad_id)
 
             is_cached[idx] = True
