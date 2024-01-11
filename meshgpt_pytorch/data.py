@@ -18,6 +18,8 @@ from beartype.typing import Tuple, List, Union, Optional, Callable, Dict, Callab
 
 from torchtyping import TensorType
 
+from pytorch_custom_utils.utils import pad_or_slice_to
+
 # helper fn
 
 def exists(v):
@@ -83,12 +85,7 @@ def cache_text_embeds_for_dataset(
             # cache
 
             text_embed = get_text_embed(text)
-            text_embed_len = text_embed.shape[0]
-
-            if text_embed_len > max_text_len:
-                text_embed = text_embed[:max_text_len]
-            elif text_embed_len < max_text_len:
-                text_embed = F.pad(text_embed, (0, 0, 0, max_text_len - text_embed_len))
+            text_embed = pad_or_slice_to(text_embed, max_text_len, dim = 0, pad_value = 0.)
 
             is_cached[idx] = True
             text_embed_cache[idx] = text_embed.cpu().numpy()
@@ -145,6 +142,112 @@ def cache_text_embeds_for_dataset(
                     new_items.append(get_text_embed_(maybe_text))
 
                 items = tuple(new_items)
+
+            return items
+
+        dataset_klass.__init__ = __init__
+        dataset_klass.__getitem__ = __getitem__
+
+        return dataset_klass
+
+    return inner
+
+# decorator for auto-caching face edges
+
+# you would decorate your Dataset class with this function
+# and then change your `data_kwargs = ["vertices", "faces", "face_edges"]`
+
+@beartype
+def cache_face_edges_for_dataset(
+    max_edges_len: int,
+    cache_path: str = './face_edges_cache',
+    assert_edge_len_lt_max: bool = True,
+    pad_id = -1
+):
+    # create path to cache folder
+
+    path = Path(cache_path)
+    path.mkdir(exist_ok = True, parents = True)
+    assert path.is_dir()
+
+    # global memmap handles
+
+    face_edges_cache = None
+    is_cached = None
+
+    # cache function
+
+    def get_maybe_cached_face_edges(
+        idx: int,
+        dataset_len: int,
+        faces: Tensor,
+        memmap_file_mode = 'w+'
+    ):
+        nonlocal face_edges_cache
+        nonlocal is_cached
+
+        if not exists(face_edges_cache):
+            # init cache on first call
+
+            shape = (dataset_len, max_edges_len, 2)
+            face_edges_cache = open_memmap(str(path / 'cache.face_edges_embed.memmap.npy'), mode = memmap_file_mode, dtype = 'float32', shape = shape)
+            is_cached = open_memmap(str(path / 'cache.is_cached.memmap.npy'), mode = memmap_file_mode, dtype = 'bool', shape = (dataset_len,))
+
+        # determine whether to fetch from cache
+        # or call derive face edges function
+
+        if is_cached[idx]:
+            face_edges = torch.from_numpy(face_edges_cache[idx])
+        else:
+            # cache
+
+            face_edges = derive_face_edges_from_faces(faces, pad_id = pad_id)
+
+            edge_len = face_edges.shape[0]
+            assert not assert_edge_len_lt_max or (edge_len <= max_edges_len), f'mesh #{idx} has {edge_len} which exceeds the cache length of {max_edges_len}'
+
+            face_edges = pad_or_slice_to(face_edges, max_edges_len, dim = 0, pad_value = pad_id)
+
+            is_cached[idx] = True
+            face_edges_cache[idx] = face_edges.cpu().numpy()
+
+        mask = reduce(face_edges != pad_id, 'n d -> n', 'all')
+        return face_edges[mask]
+
+    # inner function
+
+    def inner(dataset_klass):
+        assert issubclass(dataset_klass, Dataset)
+
+        orig_init = dataset_klass.__init__
+        orig_get_item = dataset_klass.__getitem__
+
+        def __init__(
+            self,
+            *args,
+            cache_memmap_file_mode = 'w+',
+            **kwargs
+        ):
+            orig_init(self, *args, **kwargs)
+
+            self._cache_memmap_file_mode = cache_memmap_file_mode
+
+            if hasattr(self, 'data_kwargs'):
+                self.data_kwargs.append('face_edges')
+
+        def __getitem__(self, idx):
+            items = orig_get_item(self, idx)
+
+            get_face_edges_ = partial(get_maybe_cached_face_edges, idx, len(self), memmap_file_mode = self._cache_memmap_file_mode)
+
+            if isinstance(items, dict):
+                face_edges = get_face_edges_(items['faces'])
+                items['face_edges'] = face_edges
+
+            elif isinstance(items, tuple):
+                _, faces, *_ = items
+                face_edges = get_face_edges_(faces)
+                items = (*items, face_edges)
 
             return items
 
