@@ -184,6 +184,7 @@ def undiscretize(
     return t * (hi - lo) + lo
 
 @beartype
+@autocast(enabled = False)
 def gaussian_blur_1d(
     t: Tensor,
     *,
