@@ -33,7 +33,7 @@ setup(
     'torch_geometric',
     'torchtyping',
     'tqdm',
-    'vector-quantize-pytorch>=1.12.0',
+    'vector-quantize-pytorch>=1.12.7',
     'x-transformers>=1.26.0',
   ],
   classifiers=[
