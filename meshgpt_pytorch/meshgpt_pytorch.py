@@ -190,7 +190,7 @@ def gaussian_blur_1d(
     sigma: float = 1.
 ) -> Tensor:
 
-    _, channels, _, device, dtype = *t.shape, t.device, t.dtype
+    _, _, channels, device, dtype = *t.shape, t.device, t.dtype
 
     width = int(ceil(sigma * 5))
     width += (width + 1) % 2
@@ -202,7 +202,10 @@ def gaussian_blur_1d(
     gaussian = l1norm(gaussian)
 
     kernel = repeat(gaussian, 'n -> c 1 n', c = channels)
-    return F.conv1d(t, kernel, padding = half_width, groups = channels)
+
+    t = rearrange(t, 'b n c -> b c n')
+    out = F.conv1d(t, kernel, padding = half_width, groups = channels)
+    return rearrange(out, 'b c n -> b n c')
 
 @beartype
 def scatter_mean(

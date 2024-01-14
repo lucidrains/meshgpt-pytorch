@@ -20,6 +20,8 @@ Please join <a href="https://discord.gg/xBPBXfcFHd"><img alt="Join us on Discord
 
 - <a href="https://github.com/qixuema">Quexi Ma</a> for finding numerous bugs with automatic eos handling
 
+- <a href="https://github.com/thuliu-yt16">Yingtian</a> for finding a bug with the gaussian blurring of the positions for spatial label smoothing
+
 ## Install
 
 ```bash
