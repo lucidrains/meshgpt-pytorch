@@ -190,13 +190,13 @@ def gaussian_blur_1d(
     sigma: float = 1.
 ) -> Tensor:
 
-    _, channels, _, device = *t.shape, t.device
+    _, channels, _, device, dtype = *t.shape, t.device, t.dtype
 
     width = int(ceil(sigma * 5))
     width += (width + 1) % 2
     half_width = width // 2
 
-    distance = torch.arange(-half_width, half_width + 1, dtype = torch.float, device = device)
+    distance = torch.arange(-half_width, half_width + 1, dtype = dtype, device = device)
 
     gaussian = torch.exp(-(distance ** 2) / (2 * sigma ** 2))
     gaussian = l1norm(gaussian)
