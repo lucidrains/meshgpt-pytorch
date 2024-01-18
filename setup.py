@@ -29,6 +29,7 @@ setup(
     'gateloop-transformer>=0.2.2',
     'numpy',
     'pytorch-custom-utils>=0.0.9',
+    'taylor-series-linear-attention>=0.1.6',
     'torch>=2.1',
     'torch_geometric',
     'torchtyping',
