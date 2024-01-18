@@ -39,6 +39,8 @@ from vector_quantize_pytorch import (
 from meshgpt_pytorch.data import derive_face_edges_from_faces
 from meshgpt_pytorch.version import __version__
 
+from taylor_series_linear_attention import TaylorSeriesLinearAttn
+
 from classifier_free_guidance_pytorch import (
     classifier_free_guidance,
     TextEmbeddingReturner
@@ -407,13 +409,18 @@ class MeshAutoencoder(Module):
         ),
         commit_loss_weight = 0.1,
         bin_smooth_blur_sigma = 0.4,  # they blur the one hot discretized coordinate positions
-        local_attn_encoder_depth = 0,
-        local_attn_decoder_depth = 0,
+        attn_encoder_depth = 0,
+        attn_decoder_depth = 0,
         local_attn_kwargs: dict = dict(
             dim_head = 32,
             heads = 8
         ),
         local_attn_window_size = 64,
+        linear_attn_kwargs: dict = dict(
+            dim_head = 8,
+            heads = 16
+        ),
+        use_linear_attn = True,
         pad_id = -1,
         flash_attn = True,
         sageconv_dropout = 0.,
@@ -487,10 +494,11 @@ class MeshAutoencoder(Module):
             self.encoders.append(sage_conv)
             curr_dim = dim_layer
 
-        self.encoder_local_attn_blocks = ModuleList([])
+        self.encoder_attn_blocks = ModuleList([])
 
-        for _ in range(local_attn_encoder_depth):
-            self.encoder_local_attn_blocks.append(nn.ModuleList([
+        for _ in range(attn_encoder_depth):
+            self.encoder_attn_blocks.append(nn.ModuleList([
+                TaylorSeriesLinearAttn(curr_dim, prenorm = True, **linear_attn_kwargs) if use_linear_attn else None,
                 LocalMHA(dim = curr_dim, **attn_kwargs, **local_attn_kwargs),
                 nn.Sequential(RMSNorm(curr_dim), FeedForward(curr_dim, glu = True, dropout = ff_dropout))
             ]))
@@ -531,10 +539,11 @@ class MeshAutoencoder(Module):
 
         decoder_input_dim = dim_codebook * 3
 
-        self.decoder_local_attn_blocks = ModuleList([])
+        self.decoder_attn_blocks = ModuleList([])
 
-        for _ in range(local_attn_decoder_depth):
-            self.decoder_local_attn_blocks.append(nn.ModuleList([
+        for _ in range(attn_decoder_depth):
+            self.decoder_attn_blocks.append(nn.ModuleList([
+                TaylorSeriesLinearAttn(decoder_input_dim, prenorm = True, **linear_attn_kwargs) if use_linear_attn else None,
                 LocalMHA(dim = decoder_input_dim, **attn_kwargs, **local_attn_kwargs),
                 nn.Sequential(RMSNorm(decoder_input_dim), FeedForward(decoder_input_dim, glu = True, dropout = ff_dropout))
             ]))
@@ -660,7 +669,10 @@ class MeshAutoencoder(Module):
 
         face_embed = face_embed.new_zeros(shape).masked_scatter(rearrange(face_mask, '... -> ... 1'), face_embed)
 
-        for attn, ff in self.encoder_local_attn_blocks:
+        for linear_attn, attn, ff in self.encoder_attn_blocks:
+            if exists(linear_attn):
+                face_embed = linear_attn(face_embed, mask = face_mask) + face_embed
+
             face_embed = attn(face_embed, mask = face_mask) + face_embed
             face_embed = ff(face_embed) + face_embed
 
@@ -766,7 +778,10 @@ class MeshAutoencoder(Module):
 
         x = quantized
 
-        for attn, ff in self.decoder_local_attn_blocks:
+        for linear_attn, attn, ff in self.decoder_attn_blocks:
+            if exists(linear_attn):
+                face_embed = linear_attn(face_embed, mask = face_mask) + face_embed
+
             x = attn(x, mask = face_mask) + x
             x = ff(x) + x
 
