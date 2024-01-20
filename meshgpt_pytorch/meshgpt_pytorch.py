@@ -19,6 +19,8 @@ from beartype.typing import Union, Tuple, Callable, Optional, List, Dict, Any
 from einops import rearrange, repeat, reduce, pack, unpack
 from einops.layers.torch import Rearrange
 
+from einx import get_at
+
 from x_transformers import Decoder
 from x_transformers.attend import Attend
 from x_transformers.x_transformers import RMSNorm, FeedForward, LayerIntermediates
@@ -604,12 +606,9 @@ class MeshAutoencoder(Module):
 
         face_without_pad = faces.masked_fill(~rearrange(face_mask, 'b nf -> b nf 1'), 0)
 
-        faces_vertices = repeat(face_without_pad, 'b nf nv -> b nf nv c', c = num_coors)
-        vertices = repeat(vertices, 'b nv c -> b nf nv c', nf = num_faces)
-
         # continuous face coords
 
-        face_coords = vertices.gather(-2, faces_vertices)
+        face_coords = get_at('b [nv] c, b nf mv -> b nf mv c', vertices, face_without_pad)
 
         # compute derived features and embed
 
@@ -750,14 +749,12 @@ class MeshAutoencoder(Module):
         # gather quantized vertexes back to faces for decoding
         # now the faces have quantized vertices
 
-        face_embed_output = quantized.gather(-2, faces_with_dim)
-        face_embed_output = rearrange(face_embed_output, 'b (nf nv) d -> b nf (nv d)', nv = 3)
+        face_embed_output = get_at('b [n] d, b nf nv -> b nf (nv d)', quantized, faces)
 
         # vertex codes also need to be gathered to be organized by face sequence
         # for autoregressive learning
 
-        faces_with_quantized_dim = repeat(faces, 'b nf nv -> b (nf nv) q', q = self.num_quantizers)
-        codes_output = codes.gather(-2, faces_with_quantized_dim)
+        codes_output = get_at('b [n] q, b nf nv -> b (nf nv) q', codes, faces)
 
         # make sure codes being outputted have this padding
 

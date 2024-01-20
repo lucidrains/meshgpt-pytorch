@@ -24,6 +24,7 @@ setup(
     'beartype',
     'classifier-free-guidance-pytorch>=0.5.1',
     'einops>=0.7.0',
+    'einx',
     'ema-pytorch',
     'local-attention>=1.9.0',
     'gateloop-transformer>=0.2.2',
