@@ -1024,6 +1024,8 @@ class MeshTransformer(Module):
         super().__init__()
         self.num_vertices_per_face = 3 if not quads else 4
 
+        assert autoencoder.num_vertices_per_face == self.num_vertices_per_face, 'autoencoder and transformer must both support the same type of mesh (either all triangles, or all quads)'
+
         dim, dim_fine = (dim, dim) if isinstance(dim, int) else dim
 
         self.autoencoder = autoencoder
