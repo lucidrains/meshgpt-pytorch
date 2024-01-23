@@ -136,7 +136,7 @@ def derive_angle(x, y, eps = 1e-5):
 
 @torch.no_grad()
 def get_derived_face_features(
-    face_coords: TensorType['b', 'nf', 'nvf', 3, float]  # 3 vertices with 3 coordinates
+    face_coords: TensorType['b', 'nf', 'nvf', 3, float]  # 3 or 4 vertices with 3 coordinates
 ):
     shifted_face_coords = torch.cat((face_coords[:, :, -1:], face_coords[:, :, :-1]), dim = 2)
 
@@ -1037,7 +1037,7 @@ class MeshTransformer(Module):
 
         # they use axial positional embeddings
 
-        assert divisible_by(max_seq_len, self.num_vertices_per_face * self.num_quantizers), f'max_seq_len ({max_seq_len}) must be divisible by (3 x {self.num_quantizers}) = {3 * self.num_quantizers}' # 3 vertices per face, with D codes per vertex
+        assert divisible_by(max_seq_len, self.num_vertices_per_face * self.num_quantizers), f'max_seq_len ({max_seq_len}) must be divisible by (3 x {self.num_quantizers}) = {3 * self.num_quantizers}' # 3 or 4 vertices per face, with D codes per vertex
 
         self.token_embed = nn.Embedding(self.codebook_size + 1, dim)
 
@@ -1185,7 +1185,7 @@ class MeshTransformer(Module):
             # example below for triangles, extrapolate for quads
             # v1([q1] [q2] [q1] [q2] [q1] [q2]) v2([eos| q1] [q2] [q1] [q2] [q1] [q2]) -> 0 1 2 3 4 5 6 7 8 9 10 11 12 -> v1(F F F F F F) v2(T F F F F F) v3(T F F F F F)
 
-            can_eos = i != 0 and divisible_by(i, self.num_quantizers * self.num_vertices_per_face)  # only allow for eos to be decoded at the end of each face, defined as 3 vertices with D residual VQ codes
+            can_eos = i != 0 and divisible_by(i, self.num_quantizers * self.num_vertices_per_face)  # only allow for eos to be decoded at the end of each face, defined as 3 or 4 vertices with D residual VQ codes
 
             output = self.forward_on_codes(
                 codes,
@@ -1365,7 +1365,7 @@ class MeshTransformer(Module):
         vertex_embed = repeat(self.vertex_embed, 'nv d -> (r nv q) d', r = ceil(code_len / (self.num_vertices_per_face * self.num_quantizers)), q = self.num_quantizers)
         codes = codes + vertex_embed[:code_len]
 
-        # create a token per face, by summarizing the 3 vertices
+        # create a token per face, by summarizing the 3 or 4 vertices
         # this is similar in design to the RQ transformer from Lee et al. https://arxiv.org/abs/2203.01941
 
         num_tokens_per_face = self.num_quantizers * self.num_vertices_per_face
