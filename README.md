@@ -22,6 +22,8 @@ Please join <a href="https://discord.gg/xBPBXfcFHd"><img alt="Join us on Discord
 
 - <a href="https://github.com/thuliu-yt16">Yingtian</a> for finding a bug with the gaussian blurring of the positions for spatial label smoothing
 
+- <a href="https://github.com/MarcusLoppe">Marcus</a> yet again for running the experiments to validate that it is possible to extend the system from triangles to <a href="https://github.com/lucidrains/meshgpt-pytorch/issues/54#issuecomment-1906789076">quads</a>
+
 ## Install
 
 ```bash
