@@ -75,6 +75,7 @@ class MeshAutoencoderTrainer(Module):
         grad_accum_every: int,
         val_dataset: Optional[Dataset] = None,
         val_every: int = 100,
+        shuffle: bool = True,
         val_num_batches: int = 5,
         learning_rate: float = 1e-4,
         weight_decay: float = 0.,
@@ -140,7 +141,7 @@ class MeshAutoencoderTrainer(Module):
             self.val_dataloader = DataLoader(
                 val_dataset,
                 batch_size = batch_size,
-                shuffle = True,
+                shuffle = shuffle,
                 drop_last = True,
                 collate_fn = partial(custom_collate, pad_id = model.pad_id)
             )
@@ -431,6 +432,7 @@ class MeshTransformerTrainer(Module):
         val_dataset: Optional[Dataset] = None,
         val_every = 1,
         val_num_batches = 5,
+        shuffle: bool = True,
         scheduler: Optional[Type[_LRScheduler]] = None,
         scheduler_kwargs: dict = dict(),
         ema_kwargs: dict = dict(),
@@ -480,7 +482,7 @@ class MeshTransformerTrainer(Module):
         self.dataloader = DataLoader(
             dataset,
             batch_size = batch_size,
-            shuffle = True,
+            shuffle = shuffle,
             drop_last = True,
             collate_fn = partial(custom_collate, pad_id = model.pad_id)
         )
