@@ -293,6 +293,7 @@ class Block(Module):
 class ResnetBlock(Module):
     def __init__(
         self,
+        use_squeezeExcite,
         dim,
         dim_out = None,
         *,
@@ -300,10 +301,12 @@ class ResnetBlock(Module):
         dropout = 0.
     ):
         super().__init__()
+        self.use_squeezeExcite = use_squeezeExcite
         dim_out = default(dim_out, dim)
         self.block1 = Block(dim, dim_out, groups = groups, dropout = dropout)
         self.block2 = Block(dim_out, dim_out, groups = groups, dropout = dropout)
-        self.excite = SqueezeExcite(dim_out)
+        if use_squeezeExcite:
+            self.excite = SqueezeExcite(dim_out)
         self.residual_conv = nn.Conv1d(dim, dim_out, 1) if dim != dim_out else nn.Identity()
 
     def forward(
@@ -314,7 +317,8 @@ class ResnetBlock(Module):
         res = self.residual_conv(x)
         h = self.block1(x, mask = mask)
         h = self.block2(h, mask = mask)
-        h = self.excite(h, mask = mask)
+        if self.use_squeezeExcite:
+            h = self.excite(h, mask = mask)
         return h + res
 
 # gateloop layers
@@ -424,7 +428,7 @@ class MeshAutoencoder(Module):
         ),
         use_linear_attn = True,
         pad_id = -1,
-        flash_attn = True,
+        use_squeezeExcite = True,
         sageconv_dropout = 0.,
         attn_dropout = 0.,
         ff_dropout = 0.,
@@ -570,7 +574,7 @@ class MeshAutoencoder(Module):
         self.decoders = ModuleList([])
 
         for dim_layer in decoder_dims_through_depth:
-            resnet_block = ResnetBlock(curr_dim, dim_layer, dropout = resnet_dropout)
+            resnet_block = ResnetBlock(use_squeezeExcite, curr_dim, dim_layer, dropout = resnet_dropout)
 
             self.decoders.append(resnet_block)
             curr_dim = dim_layer
