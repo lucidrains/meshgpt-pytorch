@@ -1008,6 +1008,7 @@ class MeshTransformer(Module):
             ff_glu = True,
             num_mem_kv = 4
         ),
+        cross_attn_num_mem_kv = 4, # needed for preventing nan when dropping out text condition
         dropout = 0.,
         coarse_pre_gateloop_depth = 2,
         fine_pre_gateloop_depth = 2,
@@ -1086,6 +1087,7 @@ class MeshTransformer(Module):
             ff_dropout = dropout,
             cross_attend = condition_on_text,
             cross_attn_dim_context = cross_attn_dim_context,
+            cross_attn_num_mem_kv = cross_attn_num_mem_kv,
             **attn_kwargs
         )
 
@@ -1286,7 +1288,7 @@ class MeshTransformer(Module):
         cache = None,
         texts: Optional[List[str]] = None,
         text_embeds: Optional[Tensor] = None,
-        cond_drop_prob = 0.
+        cond_drop_prob = None
     ):
         # handle text conditions
 
