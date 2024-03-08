@@ -1,6 +1,6 @@
 from pathlib import Path
 from functools import partial
-from math import ceil, pi
+from math import ceil, pi, sqrt
 
 import torch
 from torch import nn, Tensor, einsum
@@ -229,6 +229,16 @@ def scatter_mean(
 
 # resnet block
 
+class PixelNorm(Module):
+    def __init__(self, dim, eps = 1e-4):
+        super().__init__()
+        self.dim = dim
+        self.eps = eps
+
+    def forward(self, x):
+        dim = self.dim
+        return F.normalize(x, dim = dim, eps = self.eps) * sqrt(x.shape[dim])
+
 class SqueezeExcite(Module):
     def __init__(
         self,
@@ -270,7 +280,7 @@ class Block(Module):
         dim_out = default(dim_out, dim)
 
         self.proj = nn.Conv1d(dim, dim_out, 3, padding = 1)
-        self.norm = nn.LayerNorm(dim_out)
+        self.norm = PixelNorm(dim = 1)
         self.dropout = nn.Dropout(dropout)
         self.act = nn.SiLU()
 
@@ -303,7 +313,7 @@ class ResnetBlock(Module):
         super().__init__()
         dim_out = default(dim_out, dim)
         self.block1 = Block(dim, dim_out, dropout = dropout)
-        self.block2 = Block(dim_out, dim_out,  dropout = dropout)
+        self.block2 = Block(dim_out, dim_out, dropout = dropout)
         self.excite = SqueezeExcite(dim_out)
         self.residual_conv = nn.Conv1d(dim, dim_out, 1) if dim != dim_out else nn.Identity()
 
@@ -1009,6 +1019,7 @@ class MeshTransformer(Module):
             ff_glu = True,
             num_mem_kv = 4
         ),
+        cross_attn_num_mem_kv = 4, # needed for preventing nan when dropping out text condition
         dropout = 0.,
         coarse_pre_gateloop_depth = 2,
         fine_pre_gateloop_depth = 2,
@@ -1087,6 +1098,7 @@ class MeshTransformer(Module):
             ff_dropout = dropout,
             cross_attend = condition_on_text,
             cross_attn_dim_context = cross_attn_dim_context,
+            cross_attn_num_mem_kv = cross_attn_num_mem_kv,
             **attn_kwargs
         )
 
@@ -1287,7 +1299,7 @@ class MeshTransformer(Module):
         cache = None,
         texts: Optional[List[str]] = None,
         text_embeds: Optional[Tensor] = None,
-        cond_drop_prob = 0.
+        cond_drop_prob = None
     ):
         # handle text conditions
 
