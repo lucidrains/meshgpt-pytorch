@@ -284,23 +284,22 @@ class Block(Module):
         self.dropout = nn.Dropout(dropout)
         self.act = nn.SiLU()
 
+
     def forward(self, x, mask = None):
         if exists(mask):
-            x = x.masked_fill(~mask, 0.0)
+            x = x.masked_fill(~mask, 0.)
 
         x = self.proj(x)
 
         if exists(mask):
-            x = x.masked_fill(~mask, 0.0)
+            x = x.masked_fill(~mask, 0.)
 
-        x = rearrange(x, "b c n -> b n c")
         x = self.norm(x)
-        x = rearrange(x, "b n c -> b c n")
-
         x = self.act(x)
-
         x = self.dropout(x)
+
         return x
+
 
 class ResnetBlock(Module):
     def __init__(
