@@ -394,7 +394,7 @@ class MeshAutoencoderTrainer(Module):
             self.print(epochOut) 
 
          
-            if self.checkpoint_every_epoch is not None and (self.checkpoint_every_epoch == 1 or epoch != 0) and epoch % self.checkpoint_every_epoch == 0:
+            if self.checkpoint_every_epoch is not None and (self.checkpoint_every_epoch == 1 or (epoch != 0 and epoch % self.checkpoint_every_epoch == 0)):
                 self.save(self.checkpoint_folder / f'mesh-autoencoder.ckpt.epoch_{epoch}_avg_loss_{avg_epoch_loss:.5f}_recon_{avg_recon_loss:.4f}_commit_{avg_commit_loss:.4f}.pt')
                 
             if stop_at_loss is not None and avg_epoch_loss < stop_at_loss: 
@@ -709,7 +709,7 @@ class MeshTransformerTrainer(Module):
                 self.wait()
                 self.print(epochOut)
                 
-                if self.checkpoint_every_epoch is not None and epoch != 0 and epoch % self.checkpoint_every_epoch == 0:
+                if self.checkpoint_every_epoch is not None and (self.checkpoint_every_epoch == 1 or (epoch != 0 and epoch % self.checkpoint_every_epoch == 0)):
                     self.save(self.checkpoint_folder / f'mesh-transformer.ckpt.epoch_{epoch}_avg_loss_{avg_epoch_loss:.3f}.pt')
                     
                 if stop_at_loss is not None and avg_epoch_loss < stop_at_loss: 
