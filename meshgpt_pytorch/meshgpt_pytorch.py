@@ -433,7 +433,6 @@ class MeshAutoencoder(Module):
         use_linear_attn = True,
         pad_id = -1,
         flash_attn = True,
-        sageconv_dropout = 0.,
         attn_dropout = 0.,
         ff_dropout = 0.,
         resnet_dropout = 0,
@@ -484,7 +483,7 @@ class MeshAutoencoder(Module):
 
         # initial sage conv
 
-        sageconv_kwargs = {**sageconv_kwargs, 'sageconv_dropout' : sageconv_dropout}
+        sageconv_kwargs = {**sageconv_kwargs}
 
         init_encoder_dim, *encoder_dims_through_depth = encoder_dims_through_depth
         curr_dim = init_encoder_dim
