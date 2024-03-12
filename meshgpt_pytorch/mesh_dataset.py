@@ -1,5 +1,7 @@
 from torch.utils.data import Dataset
 import numpy as np  
+from torch.nn.utils.rnn import pad_sequence
+from tqdm import tqdm
 from meshgpt_pytorch import ( 
     MeshAutoencoder,
     MeshTransformer
@@ -83,27 +85,40 @@ class MeshDataset(Dataset):
         self.sort_dataset_keys()
         print(f"[MeshDataset] Generated face_edges for {i}/{len(self.data)} entrys")
 
-    def generate_codes(self, autoencoder : MeshAutoencoder): 
-        for item in self.data: 
-            codes = autoencoder.tokenize(
-                vertices = item['vertices'],
-                faces = item['faces'],
-                face_edges = item['face_edges']
-            ) 
-            item['codes'] = codes  
- 
+    def generate_codes(self, autoencoder : MeshAutoencoder, batch_size = 25): 
+        total_batches = (len(self.data) + batch_size - 1) // batch_size
+
+        for i in tqdm(range(0, len(self.data), batch_size), total=total_batches):
+            batch_data = self.data[i:i+batch_size] 
+            
+            padded_batch_vertices = pad_sequence([item['vertices'] for item in batch_data], batch_first=True, padding_value=autoencoder.pad_id)
+            padded_batch_faces = pad_sequence([item['faces'] for item in batch_data], batch_first=True, padding_value=autoencoder.pad_id)
+            padded_batch_face_edges = pad_sequence([item['face_edges'] for item in batch_data], batch_first=True, padding_value=-autoencoder.pad_id)
+            
+            batch_codes = autoencoder.tokenize(
+                vertices=padded_batch_vertices,
+                faces=padded_batch_faces,
+                face_edges=padded_batch_face_edges
+            )
+            
+            for j, item in enumerate(batch_data):
+                item['codes'] = batch_codes[j]
+                
         self.sort_dataset_keys()
         print(f"[MeshDataset] Generated codes for {len(self.data)} entrys")
     
-    def embed_texts(self, transformer : MeshTransformer): 
+    def embed_texts(self, transformer : MeshTransformer, batch_size = 50): 
         unique_texts = set(item['texts'] for item in self.data)
- 
-        text_embeddings = transformer.embed_texts(list(unique_texts))
-        print(f"[MeshDataset] Generated {len(text_embeddings)} text_embeddings") 
-        text_embedding_dict = dict(zip(unique_texts, text_embeddings))
- 
+        embeddings = []
+        for i in range(0,len(unique_texts), batch_size):
+            text_embeddings = transformer.embed_texts(list(unique_texts)[i:i+batch_size])
+            embeddings.extend(text_embeddings)
+            
+        text_embedding_dict = dict(zip(unique_texts, embeddings))
+
         for item in self.data:
             if 'texts' in item:  
                 item['text_embeds'] = text_embedding_dict.get(item['texts'], None)
                 del item['texts'] 
         self.sort_dataset_keys()
+        print(f"[MeshDataset] Generated {len(embeddings)} text_embeddings") 

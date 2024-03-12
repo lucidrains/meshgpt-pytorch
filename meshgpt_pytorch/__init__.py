@@ -17,4 +17,9 @@ from meshgpt_pytorch.data import (
 from meshgpt_pytorch.mesh_dataset import (
     MeshDataset
 )
+from meshgpt_pytorch.mesh_render import (
+    combind_mesh_with_rows,
+    write_mesh_output,
+    combind_mesh
+)
  
