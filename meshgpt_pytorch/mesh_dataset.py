@@ -102,8 +102,14 @@ class MeshDataset(Dataset):
             )
             
 
-            for codes, item in zip(batch_codes, batch_data): 
-                item['codes'] = [code for code in codes if code != autoencoder.pad_id and code != -1]
+            mask = (batch_codes != autoencoder.pad_id).all(dim=-1) 
+            unpadded_batch_codes = batch_codes[mask].view(-1, 2)
+ 
+            code_index = 0
+            for item in batch_data:
+                item_code_length = unpadded_batch_codes.size(0) // len(batch_data)
+                item['codes'] = unpadded_batch_codes[code_index:code_index+item_code_length].tolist()
+                code_index += item_code_length
                 
         self.sort_dataset_keys()
         print(f"[MeshDataset] Generated codes for {len(self.data)} entrys")
