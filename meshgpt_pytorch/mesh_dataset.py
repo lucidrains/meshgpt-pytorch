@@ -101,8 +101,9 @@ class MeshDataset(Dataset):
                 face_edges=padded_batch_face_edges
             )
             
-            for j, item in enumerate(batch_data):
-                item['codes'] = batch_codes[j]
+
+        for codes, item in zip(batch_codes, batch_data): 
+            item['codes'] = [code for code in codes if code != autoencoder.pad_id and code != -1]
                 
         self.sort_dataset_keys()
         print(f"[MeshDataset] Generated codes for {len(self.data)} entrys")
