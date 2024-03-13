@@ -108,7 +108,7 @@ class MeshDataset(Dataset):
             code_index = 0
             for item in batch_data:
                 item_code_length = unpadded_batch_codes.size(0) // len(batch_data)
-                item['codes'] = unpadded_batch_codes[code_index:code_index+item_code_length].tolist()
+                item['codes'] = unpadded_batch_codes[code_index:code_index+item_code_length]
                 code_index += item_code_length
                 
         self.sort_dataset_keys()
