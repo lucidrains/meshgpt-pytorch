@@ -481,14 +481,11 @@ class MeshAutoencoder(Module):
 
         self.project_in = nn.Linear(init_dim, dim_codebook)
 
-        # initial sage conv
-
-        sageconv_kwargs = {**sageconv_kwargs}
-
+        # initial sage conv 
         init_encoder_dim, *encoder_dims_through_depth = encoder_dims_through_depth
         curr_dim = init_encoder_dim
 
-        self.init_sage_conv = SAGEConv(dim_codebook, init_encoder_dim, **sageconv_kwargs)
+        self.init_sage_conv = SAGEConv(dim_codebook, init_encoder_dim, {**sageconv_kwargs})
 
         self.init_encoder_act_and_norm = nn.Sequential(
             nn.SiLU(),
