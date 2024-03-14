@@ -19,8 +19,18 @@ https://github.com/lucidrains/meshgpt-pytorch
  
 ## Pre-trained autoencoder on the Objaverse dataset (14k meshes, only meshes that have max 250 faces): 
 This is contains only autoencoder model, I'm currently training the transformer model.
+Visit the discussions [Pre-trained autoencoder & data sourcing](https://github.com/lucidrains/meshgpt-pytorch/discussions/66) for more information about the training and details about the progression.
 
 https://drive.google.com/drive/folders/1C1l5QrCtg9UulMJE5n_on4A9O9Gn0CC5?usp=sharing
+
+
+The auto-encoder results shows that it's possible to compress many mesh models into tokens which then can be decoded and reconstruct a mesh near perfection!
+The auto-encoder was trained for 9 epochs for 20hrs on a single P100 GPU.
+The more resource heavy part is to train a transformer that can use these tokens learn the auto-encoders 'language'.
+Using the codes as a vocabablity and learn the relationship between the the codes and it's ordering requires more compute during training.
+So by using a single P100 GPU it will probaly take a few weeks till I can get out a pre-trained transformer. 
+
+Let me know if you wish to donate any compute or I can provide you with the dataset + training notebook.
 
 ```
 num_layers = 23 
