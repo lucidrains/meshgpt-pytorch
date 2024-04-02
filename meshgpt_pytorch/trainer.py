@@ -88,7 +88,7 @@ class MeshAutoencoderTrainer(Module):
         checkpoint_every = 1000,
         checkpoint_every_epoch: Optional[int] = None,
         checkpoint_folder = './checkpoints',
-        data_kwargs: Tuple[str, ...] = ['vertices', 'faces', 'face_edges'],
+        data_kwargs: Tuple[str, ...] = ('vertices', 'faces', 'face_edges'),
         warmup_steps = 1000,
         use_wandb_tracking = False
     ):
@@ -442,7 +442,7 @@ class MeshTransformerTrainer(Module):
         checkpoint_every = 1000, 
         checkpoint_every_epoch: Optional[int] = None,
         checkpoint_folder = './checkpoints',
-        data_kwargs: Tuple[str, ...] = ['vertices', 'faces', 'face_edges', 'text'],
+        data_kwargs: Tuple[str, ...] = ('vertices', 'faces', 'face_edges', 'text'),
         warmup_steps = 1000,
         use_wandb_tracking = False
     ):
