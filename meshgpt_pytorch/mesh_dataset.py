@@ -93,7 +93,7 @@ class MeshDataset(Dataset):
             
             padded_batch_vertices = pad_sequence([item['vertices'] for item in batch_data], batch_first=True, padding_value=autoencoder.pad_id)
             padded_batch_faces = pad_sequence([item['faces'] for item in batch_data], batch_first=True, padding_value=autoencoder.pad_id)
-            padded_batch_face_edges = pad_sequence([item['face_edges'] for item in batch_data], batch_first=True, padding_value=-autoencoder.pad_id)
+            padded_batch_face_edges = pad_sequence([item['face_edges'] for item in batch_data], batch_first=True, padding_value=autoencoder.pad_id)
             
             batch_codes = autoencoder.tokenize(
                 vertices=padded_batch_vertices,
@@ -103,13 +103,10 @@ class MeshDataset(Dataset):
             
 
             mask = (batch_codes != autoencoder.pad_id).all(dim=-1) 
-            unpadded_batch_codes = batch_codes[mask].view(-1, 2)
- 
-            code_index = 0
-            for item in batch_data:
-                item_code_length = unpadded_batch_codes.size(0) // len(batch_data)
-                item['codes'] = unpadded_batch_codes[code_index:code_index+item_code_length]
-                code_index += item_code_length
+            for item_idx, (item_codes, item_mask) in enumerate(zip(batch_codes, mask)):            
+                item_codes_masked = item_codes[item_mask]
+                item = batch_data[item_idx]
+                item['codes'] = item_codes_masked 
                 
         self.sort_dataset_keys()
         print(f"[MeshDataset] Generated codes for {len(self.data)} entrys")
