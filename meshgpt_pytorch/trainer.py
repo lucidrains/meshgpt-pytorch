@@ -12,23 +12,22 @@ from torch.optim.lr_scheduler import _LRScheduler
 
 from pytorch_custom_utils import (
     get_adam_optimizer,
-    OptimizerWithWarmupSchedule,
-    add_wandb_tracker_contextmanager
+    OptimizerWithWarmupSchedule
 )
 
 from accelerate import Accelerator
 from accelerate.utils import DistributedDataParallelKwargs
 
 from beartype import beartype
-from beartype.door import is_bearable
-from beartype.typing import Optional, Tuple, Type, List
+from beartype.typing import Optional, Tuple, Type
 
 from ema_pytorch import EMA
 
 from meshgpt_pytorch.data import custom_collate
 
 from meshgpt_pytorch.version import __version__
-
+import matplotlib.pyplot as plt
+from tqdm import tqdm
 from meshgpt_pytorch.meshgpt_pytorch import (
     MeshAutoencoder,
     MeshTransformer
@@ -65,7 +64,6 @@ def maybe_del(d: dict, *keys):
 
 # autoencoder trainer
 
-@add_wandb_tracker_contextmanager()
 class MeshAutoencoderTrainer(Module):
     @beartype
     def __init__(
@@ -77,6 +75,7 @@ class MeshAutoencoderTrainer(Module):
         grad_accum_every: int,
         val_dataset: Optional[Dataset] = None,
         val_every: int = 100,
+        shuffle: bool = True,
         val_num_batches: int = 5,
         learning_rate: float = 1e-4,
         weight_decay: float = 0.,
@@ -87,8 +86,9 @@ class MeshAutoencoderTrainer(Module):
         accelerator_kwargs: dict = dict(),
         optimizer_kwargs: dict = dict(),
         checkpoint_every = 1000,
+        checkpoint_every_epoch: Optional[int] = None,
         checkpoint_folder = './checkpoints',
-        data_kwargs: Tuple[str, ...] = ['vertices', 'faces', 'face_edges'],
+        data_kwargs: Tuple[str, ...] = ('vertices', 'faces', 'face_edges'),
         warmup_steps = 1000,
         use_wandb_tracking = False
     ):
@@ -125,7 +125,7 @@ class MeshAutoencoderTrainer(Module):
         self.dataloader = DataLoader(
             dataset,
             batch_size = batch_size,
-            shuffle = True,
+            shuffle = shuffle,
             drop_last = True,
             collate_fn = partial(custom_collate, pad_id = model.pad_id)
         )
@@ -141,16 +141,12 @@ class MeshAutoencoderTrainer(Module):
             self.val_dataloader = DataLoader(
                 val_dataset,
                 batch_size = batch_size,
-                shuffle = True,
+                shuffle = shuffle,
                 drop_last = True,
                 collate_fn = partial(custom_collate, pad_id = model.pad_id)
             )
 
-        if hasattr(dataset, 'data_kwargs') and exists(dataset.data_kwargs):
-            assert is_bearable(dataset.data_kwargs, List[str])
-            self.data_kwargs = dataset.data_kwargs
-        else:
-            self.data_kwargs = data_kwargs
+        self.data_kwargs = data_kwargs
 
         (
             self.model,
@@ -164,6 +160,7 @@ class MeshAutoencoderTrainer(Module):
         self.num_train_steps = num_train_steps
         self.register_buffer('step', torch.tensor(0))
 
+        self.checkpoint_every_epoch = checkpoint_every_epoch
         self.checkpoint_every = checkpoint_every
         self.checkpoint_folder = Path(checkpoint_folder)
         self.checkpoint_folder.mkdir(exist_ok = True, parents = True)
@@ -174,6 +171,24 @@ class MeshAutoencoderTrainer(Module):
 
     def tokenize(self, *args, **kwargs):
         return self.ema_tokenizer.tokenize(*args, **kwargs)
+
+    @contextmanager
+    @beartype
+    def trackers(
+        self,
+        project_name: str,
+        run_name: Optional[str] = None,
+        hps: Optional[dict] = None
+    ):
+        assert self.use_wandb_tracking
+
+        self.accelerator.init_trackers(project_name, config = hps)
+
+        if exists(run_name):
+            self.accelerator.trackers[0].run.name = run_name
+
+        yield
+        self.accelerator.end_training()
 
     def log(self, **data_kwargs):
         self.accelerator.log(data_kwargs, step = self.step.item())
@@ -319,10 +334,90 @@ class MeshAutoencoderTrainer(Module):
             self.wait()
 
         self.print('training complete')
+        
+    def train(self, num_epochs, stop_at_loss = None, diplay_graph = False):
+        epoch_losses, epoch_recon_losses, epoch_commit_losses = [] , [],[] 
+        self.model.train() 
+        
+        for epoch in range(num_epochs): 
+            total_epoch_loss, total_epoch_recon_loss, total_epoch_commit_loss = 0.0, 0.0, 0.0
+            
+            progress_bar = tqdm(enumerate(self.dataloader), desc=f'Epoch {epoch + 1}/{num_epochs}', total=len(self.dataloader))
+            for batch_idx, batch in progress_bar:
+                is_last = (batch_idx+1) % self.grad_accum_every == 0
+                maybe_no_sync = partial(self.accelerator.no_sync, self.model) if not is_last else nullcontext
+                
+                if isinstance(batch, tuple):
+                    forward_kwargs = dict(zip(self.data_kwargs, batch)) 
+                elif isinstance(batch, dict):
+                    forward_kwargs = batch 
+                maybe_del(forward_kwargs, 'texts', 'text_embeds')
+                
+                with self.accelerator.autocast(), maybe_no_sync():  
+                    total_loss, (recon_loss, commit_loss) = self.model(
+                        **forward_kwargs,
+                        return_loss_breakdown = True
+                    ) 
+                    self.accelerator.backward(total_loss / self.grad_accum_every)
 
+                current_loss = total_loss.item()
+                total_epoch_loss += current_loss
+                total_epoch_recon_loss += recon_loss.item()
+                total_epoch_commit_loss += commit_loss.sum().item()  
+                
+                progress_bar.set_postfix(loss=current_loss, recon_loss = round(recon_loss.item(),3), commit_loss = round(commit_loss.sum().item(),4)) 
+                    
+                if is_last or (batch_idx + 1 == len(self.dataloader)): 
+                    self.optimizer.step()
+                    self.optimizer.zero_grad() 
+                    
+                    
+                
+            avg_recon_loss = total_epoch_recon_loss / len(self.dataloader)
+            avg_commit_loss = total_epoch_commit_loss / len(self.dataloader)
+            avg_epoch_loss = total_epoch_loss / len(self.dataloader)  
+            
+            epoch_losses.append(avg_epoch_loss)
+            epoch_recon_losses.append(avg_recon_loss)
+            epoch_commit_losses.append(avg_commit_loss)
+            
+            epochOut = f'Epoch {epoch + 1} average loss: {avg_epoch_loss} recon loss: {avg_recon_loss:.4f}: commit_loss {avg_commit_loss:.4f}'
+
+            if len(epoch_losses) >= 4 and avg_epoch_loss > 0:
+                avg_loss_improvement = sum(epoch_losses[-4:-1]) / 3 - avg_epoch_loss
+                epochOut += f'          avg loss speed: {avg_loss_improvement}' 
+                if avg_loss_improvement > 0 and avg_loss_improvement < 0.2:
+                    epochs_until_0_3 = max(0, abs(avg_epoch_loss-0.3) / avg_loss_improvement)
+                    if epochs_until_0_3> 0:
+                        epochOut += f' epochs left: {epochs_until_0_3:.2f}'  
+                    
+            self.wait() 
+            self.print(epochOut) 
+
+         
+            if self.is_main and self.checkpoint_every_epoch is not None and (self.checkpoint_every_epoch == 1 or (epoch != 0 and epoch % self.checkpoint_every_epoch == 0)):
+                self.save(self.checkpoint_folder / f'mesh-autoencoder.ckpt.epoch_{epoch}_avg_loss_{avg_epoch_loss:.5f}_recon_{avg_recon_loss:.4f}_commit_{avg_commit_loss:.4f}.pt')
+                
+            if stop_at_loss is not None and avg_epoch_loss < stop_at_loss: 
+                self.print(f'Stopping training at epoch {epoch} with average loss {avg_epoch_loss}')
+                if self.is_main and self.checkpoint_every_epoch is not None:
+                    self.save(self.checkpoint_folder / f'mesh-autoencoder.ckpt.stop_at_loss_avg_loss_{avg_epoch_loss:.3f}.pt') 
+                break   
+  
+        self.print('Training complete') 
+        if diplay_graph:
+            plt.figure(figsize=(10, 5))
+            plt.plot(range(1, len(epoch_losses)+1), epoch_losses, marker='o', label='Total Loss')
+            plt.plot(range(1, len(epoch_losses)+1), epoch_recon_losses, marker='o', label='Recon Loss')
+            plt.plot(range(1, len(epoch_losses)+1), epoch_commit_losses, marker='o', label='Commit Loss') 
+            plt.title('Training Loss Over Epochs')
+            plt.xlabel('Epoch')
+            plt.ylabel('Average Loss')
+            plt.grid(True)
+            plt.show()
+        return epoch_losses[-1]
 # mesh transformer trainer
 
-@add_wandb_tracker_contextmanager()
 class MeshTransformerTrainer(Module):
     @beartype
     def __init__(
@@ -338,14 +433,17 @@ class MeshTransformerTrainer(Module):
         val_dataset: Optional[Dataset] = None,
         val_every = 1,
         val_num_batches = 5,
+        shuffle: bool = True,
         scheduler: Optional[Type[_LRScheduler]] = None,
         scheduler_kwargs: dict = dict(),
         ema_kwargs: dict = dict(),
         accelerator_kwargs: dict = dict(),
         optimizer_kwargs: dict = dict(),
-        checkpoint_every = 1000,
+        
+        checkpoint_every = 1000, 
+        checkpoint_every_epoch: Optional[int] = None,
         checkpoint_folder = './checkpoints',
-        data_kwargs: Tuple[str, ...] = ['vertices', 'faces', 'face_edges', 'texts'],
+        data_kwargs: Tuple[str, ...] = ('vertices', 'faces', 'face_edges', 'text'),
         warmup_steps = 1000,
         use_wandb_tracking = False
     ):
@@ -385,7 +483,7 @@ class MeshTransformerTrainer(Module):
         self.dataloader = DataLoader(
             dataset,
             batch_size = batch_size,
-            shuffle = True,
+            shuffle = shuffle,
             drop_last = True,
             collate_fn = partial(custom_collate, pad_id = model.pad_id)
         )
@@ -401,16 +499,12 @@ class MeshTransformerTrainer(Module):
             self.val_dataloader = DataLoader(
                 val_dataset,
                 batch_size = batch_size,
-                shuffle = True,
+                shuffle = shuffle,
                 drop_last = True,
                 collate_fn = partial(custom_collate, pad_id = model.pad_id)
             )
 
-        if hasattr(dataset, 'data_kwargs') and exists(dataset.data_kwargs):
-            assert is_bearable(dataset.data_kwargs, List[str])
-            self.data_kwargs = dataset.data_kwargs
-        else:
-            self.data_kwargs = data_kwargs
+        self.data_kwargs = data_kwargs
 
         (
             self.model,
@@ -424,9 +518,28 @@ class MeshTransformerTrainer(Module):
         self.num_train_steps = num_train_steps
         self.register_buffer('step', torch.tensor(0))
 
+        self.checkpoint_every_epoch = checkpoint_every_epoch
         self.checkpoint_every = checkpoint_every
         self.checkpoint_folder = Path(checkpoint_folder)
         self.checkpoint_folder.mkdir(exist_ok = True, parents = True)
+
+    @contextmanager
+    @beartype
+    def trackers(
+        self,
+        project_name: str,
+        run_name: Optional[str] = None,
+        hps: Optional[dict] = None
+    ):
+        assert self.use_wandb_tracking
+
+        self.accelerator.init_trackers(project_name, config = hps)
+
+        if exists(run_name):
+            self.accelerator.trackers[0].run.name = run_name
+
+        yield
+        self.accelerator.end_training()
 
     def log(self, **data_kwargs):
         self.accelerator.log(data_kwargs, step = self.step.item())
@@ -551,3 +664,70 @@ class MeshTransformerTrainer(Module):
             self.wait()
 
         self.print('training complete')
+ 
+            
+    def train(self, num_epochs, stop_at_loss = None, diplay_graph = False):
+            epoch_losses = [] 
+            epoch_size = len(self.dataloader)
+            self.model.train() 
+            
+            for epoch in range(num_epochs): 
+                total_epoch_loss = 0.0 
+                
+                progress_bar = tqdm(enumerate(self.dataloader), desc=f'Epoch {epoch + 1}/{num_epochs}', total=len(self.dataloader))
+                for batch_idx, batch in progress_bar: 
+                        
+                    is_last = (batch_idx+1) % self.grad_accum_every == 0
+                    maybe_no_sync = partial(self.accelerator.no_sync, self.model) if not is_last else nullcontext
+
+                    with self.accelerator.autocast(), maybe_no_sync(): 
+                        total_loss = self.model(**batch) 
+                        self.accelerator.backward(total_loss / self.grad_accum_every)
+
+                    current_loss = total_loss.item()
+                    total_epoch_loss += current_loss  
+                    
+                    progress_bar.set_postfix(loss=current_loss) 
+                        
+                    if is_last or (batch_idx + 1 == len(self.dataloader)): 
+                        self.optimizer.step()
+                        self.optimizer.zero_grad() 
+                        
+                avg_epoch_loss = total_epoch_loss / epoch_size 
+                epochOut = f'Epoch {epoch + 1} average loss: {avg_epoch_loss}' 
+            
+            
+                epoch_losses.append(avg_epoch_loss) 
+
+                if len(epoch_losses) >= 4 and avg_epoch_loss > 0:
+                    avg_loss_improvement = sum(epoch_losses[-4:-1]) / 3 - avg_epoch_loss
+                    epochOut += f'          avg loss speed: {avg_loss_improvement}' 
+                    if avg_loss_improvement > 0 and avg_loss_improvement < 0.2:
+                        epochs_until_0_3 = max(0, abs(avg_epoch_loss-0.3) / avg_loss_improvement)
+                        if epochs_until_0_3> 0:
+                            epochOut += f' epochs left: {epochs_until_0_3:.2f}'  
+                        
+                self.wait()
+                self.print(epochOut)
+                
+                if self.is_main and self.checkpoint_every_epoch is not None and (self.checkpoint_every_epoch == 1 or (epoch != 0 and epoch % self.checkpoint_every_epoch == 0)):
+                    self.save(self.checkpoint_folder / f'mesh-transformer.ckpt.epoch_{epoch}_avg_loss_{avg_epoch_loss:.3f}.pt')
+                    
+                if stop_at_loss is not None and avg_epoch_loss < stop_at_loss: 
+                    self.print(f'Stopping training at epoch {epoch} with average loss {avg_epoch_loss}')
+                    if self.is_main and self.checkpoint_every_epoch is not None:
+                        self.save(self.checkpoint_folder / f'mesh-transformer.ckpt.stop_at_loss_avg_loss_{avg_epoch_loss:.3f}.pt') 
+                    break   
+    
+
+            self.print('Training complete') 
+            if diplay_graph:
+                plt.figure(figsize=(10, 5))
+                plt.plot(range(1, len(epoch_losses) + 1), epoch_losses, marker='o', label='Total Loss') 
+                plt.title('Training Loss Over Epochs')
+                plt.xlabel('Epoch')
+                plt.ylabel('Average Loss')
+                plt.grid(True)
+                plt.show()
+            return epoch_losses[-1]
+    

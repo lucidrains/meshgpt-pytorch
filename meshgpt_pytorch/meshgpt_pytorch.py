@@ -284,6 +284,7 @@ class Block(Module):
         self.dropout = nn.Dropout(dropout)
         self.act = nn.SiLU()
 
+
     def forward(self, x, mask = None):
         if exists(mask):
             x = x.masked_fill(~mask, 0.)
@@ -298,6 +299,7 @@ class Block(Module):
         x = self.dropout(x)
 
         return x
+
 
 class ResnetBlock(Module):
     def __init__(
@@ -321,7 +323,7 @@ class ResnetBlock(Module):
     ):
         res = self.residual_conv(x)
         h = self.block1(x, mask = mask)
-        h = self.block2(h, mask = mask)
+        h = self.block2(h, mask = mask) 
         h = self.excite(h, mask = mask)
         return h + res
 
@@ -432,7 +434,7 @@ class MeshAutoencoder(Module):
         ),
         use_linear_attn = True,
         pad_id = -1,
-        flash_attn = True,
+        sageconv_dropout = 0.,
         attn_dropout = 0.,
         ff_dropout = 0.,
         resnet_dropout = 0,
@@ -481,7 +483,10 @@ class MeshAutoencoder(Module):
 
         self.project_in = nn.Linear(init_dim, dim_codebook)
 
-        # initial sage conv 
+        # initial sage conv
+
+        sageconv_kwargs = {**sageconv_kwargs }
+
         init_encoder_dim, *encoder_dims_through_depth = encoder_dims_through_depth
         curr_dim = init_encoder_dim
 
@@ -889,6 +894,7 @@ class MeshAutoencoder(Module):
         vertices:       TensorType['b', 'nv', 3, float],
         faces:          TensorType['b', 'nf', 'nvf', int],
         face_edges:     Optional[TensorType['b', 'e', 2, int]] = None,
+        texts: Optional[List[str]] = None,
         return_codes = False,
         return_loss_breakdown = False,
         return_recon_faces = False,

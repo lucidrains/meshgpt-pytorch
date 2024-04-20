@@ -11,6 +11,7 @@ import numpy as np
 from numpy.lib.format import open_memmap
 
 from einops import rearrange, reduce
+from torch import nn, Tensor
 
 from beartype import beartype
 from beartype.typing import Tuple, List, Union, Optional, Callable, Dict, Callable
@@ -359,6 +360,7 @@ def custom_collate(data, pad_id = -1):
             datum = pad_sequence(datum, batch_first = True, padding_value = pad_id)
         else:
             datum = list(datum)
+            output.append(datum)
 
         output.append(datum)
 
