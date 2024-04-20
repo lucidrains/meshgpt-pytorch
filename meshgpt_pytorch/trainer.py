@@ -337,7 +337,7 @@ class MeshAutoencoderTrainer(Module):
 
         self.print('training complete')
         
-    def train(self, logfile num_epochs, stop_at_loss = None, diplay_graph = False):
+    def train(self, logfile, num_epochs, stop_at_loss = None, diplay_graph = False):
         # Configure the logging
         logging.basicConfig(filename=logfile, level=logging.INFO)
         epoch_losses, epoch_recon_losses, epoch_commit_losses = [] , [],[] 
