@@ -33,6 +33,8 @@ from meshgpt_pytorch.meshgpt_pytorch import (
     MeshTransformer
 )
 
+import logging
+
 # constants
 
 DEFAULT_DDP_KWARGS = DistributedDataParallelKwargs(
@@ -335,7 +337,9 @@ class MeshAutoencoderTrainer(Module):
 
         self.print('training complete')
         
-    def train(self, num_epochs, stop_at_loss = None, diplay_graph = False):
+    def train(self, logfile num_epochs, stop_at_loss = None, diplay_graph = False):
+        # Configure the logging
+        logging.basicConfig(filename=logfile, level=logging.INFO)
         epoch_losses, epoch_recon_losses, epoch_commit_losses = [] , [],[] 
         self.model.train() 
         
@@ -394,6 +398,8 @@ class MeshAutoencoderTrainer(Module):
             self.wait() 
             self.print(epochOut) 
 
+            # Add avg_epoch_loss, avg_recon_loss and avg_commit_loss to logfile:
+            logging.info("Epoch: {} Average loss: {:.4f} Recon loss: {:.4f} Commit loss: {:.4f}".format(epoch+1, avg_epoch_loss, avg_recon_loss, avg_commit_loss))
          
             if self.is_main and self.checkpoint_every_epoch is not None and (self.checkpoint_every_epoch == 1 or (epoch != 0 and epoch % self.checkpoint_every_epoch == 0)):
                 self.save(self.checkpoint_folder / f'mesh-autoencoder.ckpt.epoch_{epoch}_avg_loss_{avg_epoch_loss:.5f}_recon_{avg_recon_loss:.4f}_commit_{avg_commit_loss:.4f}.pt')
@@ -414,8 +420,9 @@ class MeshAutoencoderTrainer(Module):
             plt.xlabel('Epoch')
             plt.ylabel('Average Loss')
             plt.grid(True)
+            plt.legend(loc='best')
             plt.show()
-        return epoch_losses[-1]
+        return epoch_losses[-1], epoch_recon_losses[-1], epoch_commit_losses[-1]
 # mesh transformer trainer
 
 class MeshTransformerTrainer(Module):
@@ -728,6 +735,7 @@ class MeshTransformerTrainer(Module):
                 plt.xlabel('Epoch')
                 plt.ylabel('Average Loss')
                 plt.grid(True)
+                plt.legend(loc='best')
                 plt.show()
             return epoch_losses[-1]
     
