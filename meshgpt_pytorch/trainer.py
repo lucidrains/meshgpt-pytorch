@@ -673,7 +673,8 @@ class MeshTransformerTrainer(Module):
         self.print('training complete')
  
             
-    def train(self, num_epochs, stop_at_loss = None, diplay_graph = False):
+    def train(self, logfile, num_epochs, stop_at_loss = None, diplay_graph = False):
+            logging.basicConfig(filename=logfile, level=logging.INFO)
             epoch_losses = [] 
             epoch_size = len(self.dataloader)
             self.model.train() 
@@ -716,7 +717,10 @@ class MeshTransformerTrainer(Module):
                         
                 self.wait()
                 self.print(epochOut)
-                
+
+                # Add avg_epoch_loss, avg_recon_loss and avg_commit_loss to logfile:
+                logging.info("Epoch: {} Average loss: {:.4f}".format(epoch + 1, avg_epoch_loss))
+
                 if self.is_main and self.checkpoint_every_epoch is not None and (self.checkpoint_every_epoch == 1 or (epoch != 0 and epoch % self.checkpoint_every_epoch == 0)):
                     self.save(self.checkpoint_folder / f'mesh-transformer.ckpt.epoch_{epoch}_avg_loss_{avg_epoch_loss:.3f}.pt')
                     
