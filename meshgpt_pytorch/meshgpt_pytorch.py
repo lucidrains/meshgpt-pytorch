@@ -1107,7 +1107,7 @@ class MeshTransformer(Module):
 
         # address a weakness in attention
 
-        self.fine_gateloop_block = GateLoopBlock(dim, depth = fine_pre_gateloop_depth) if fine_pre_gateloop_depth > 0 else None
+        self.fine_gateloop_block = GateLoopBlock(dim, depth = fine_pre_gateloop_depth, use_heinsen = gateloop_use_heinsen) if fine_pre_gateloop_depth > 0 else None
 
         # decoding the vertices, 2-stage hierarchy
 
