@@ -337,12 +337,12 @@ class MeshAutoencoderTrainer(Module):
 
         self.print('training complete')
         
-    def train(self, logfile, num_epochs, stop_at_loss = None, diplay_graph = False):
+    def train(self, logfile, num_epochs, stop_at_loss = None, diplay_graph = False, pos_commit_loss_file = None):
         # Configure the logging
         logging.basicConfig(filename=logfile, level=logging.INFO)
         epoch_losses, epoch_recon_losses, epoch_commit_losses = [] , [],[] 
         self.model.train() 
-        
+        best_recon_loss_pos_commit = 1e10
         for epoch in range(num_epochs): 
             total_epoch_loss, total_epoch_recon_loss, total_epoch_commit_loss = 0.0, 0.0, 0.0
             
@@ -403,7 +403,12 @@ class MeshAutoencoderTrainer(Module):
          
             if self.is_main and self.checkpoint_every_epoch is not None and (self.checkpoint_every_epoch == 1 or (epoch != 0 and epoch % self.checkpoint_every_epoch == 0)):
                 self.save(self.checkpoint_folder / f'mesh-autoencoder.ckpt.epoch_{epoch}_avg_loss_{avg_epoch_loss:.5f}_recon_{avg_recon_loss:.4f}_commit_{avg_commit_loss:.4f}.pt')
-                
+
+            if pos_commit_loss_file is not None and avg_commit_loss > 0 and avg_recon_loss < best_recon_loss_pos_commit:
+                print("Saving model with positive commit: recon: ", avg_recon_loss, ", commit: ", avg_commit_loss)
+                self.save(pos_commit_loss_file, overwrite = True)
+                best_recon_loss_pos_commit = avg_recon_loss
+
             if stop_at_loss is not None and avg_epoch_loss < stop_at_loss: 
                 self.print(f'Stopping training at epoch {epoch} with average loss {avg_epoch_loss}')
                 if self.is_main and self.checkpoint_every_epoch is not None:
