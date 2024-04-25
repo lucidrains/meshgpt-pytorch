@@ -348,7 +348,7 @@ class MeshAutoencoderTrainer(Module):
         best_recon_loss_pos_commit = 1e10
         for epoch in range(num_epochs): 
             total_epoch_loss, total_epoch_recon_loss, total_epoch_commit_loss = 0.0, 0.0, 0.0
-            
+            total_epoch_abs_recon_loss, total_epoch_abs_commit_loss = 0.0, 0.0
             progress_bar = tqdm(enumerate(self.dataloader), desc=f'Epoch {epoch + 1}/{num_epochs}',
                                 dynamic_ncols=True, total=len(self.dataloader))
             for batch_idx, batch in progress_bar:
@@ -371,8 +371,11 @@ class MeshAutoencoderTrainer(Module):
                 current_loss = total_loss.item()
                 total_epoch_loss += current_loss
                 total_epoch_recon_loss += recon_loss.item()
-                total_epoch_commit_loss += commit_loss.sum().item()  
-                
+                total_epoch_commit_loss += commit_loss.sum().item()
+
+                total_epoch_abs_recon_loss += abs(recon_loss.item())
+                total_epoch_abs_commit_loss += abs(commit_loss.sum().item())
+
                 progress_bar.set_postfix(loss=current_loss, recon_loss = round(recon_loss.item(),3), commit_loss = round(commit_loss.sum().item(),4))
                     
                 if is_last or (batch_idx + 1 == len(self.dataloader)): 
@@ -391,6 +394,10 @@ class MeshAutoencoderTrainer(Module):
             
             epochOut = f'Epoch {epoch + 1} average loss: {avg_epoch_loss} recon loss: {avg_recon_loss:.4f}: commit_loss {avg_commit_loss:.4f}'
 
+            avg_abs_recon_loss = total_epoch_abs_recon_loss / len(self.dataloader)
+            avg_abs_commit_loss = total_epoch_abs_commit_loss / len(self.dataloader)
+            epochOut_abs = f'Epoch {epoch + 1} abs recon loss: {avg_abs_recon_loss:.4f}: abs_commit_loss {avg_abs_commit_loss:.4f}'
+
             if len(epoch_losses) >= 4 and avg_epoch_loss > 0:
                 avg_loss_improvement = sum(epoch_losses[-4:-1]) / 3 - avg_epoch_loss
                 epochOut += f'          avg loss speed: {avg_loss_improvement}' 
@@ -400,10 +407,13 @@ class MeshAutoencoderTrainer(Module):
                         epochOut += f' epochs left: {epochs_until_0_3:.2f}'  
                     
             self.wait() 
-            self.print(epochOut) 
+            self.print(epochOut)
+            self.print(epochOut_abs)
 
             # Add avg_epoch_loss, avg_recon_loss and avg_commit_loss to logfile:
             logging.info("Epoch: {} Average loss: {:.4f} Recon loss: {:.4f} Commit loss: {:.4f}".format(epoch+1, avg_epoch_loss, avg_recon_loss, avg_commit_loss))
+            # This does not catch the average abs loss of all reconstructions, only the average for all the batches.
+            logging.info("Epoch: {} Average abs recon loss: {:.4f} Average abs commit loss: {:.4f}".format(epoch + 1, avg_abs_recon_loss, avg_abs_commit_loss))
             shutil.copyfile(logfile, logfile_tmp)
 
             if self.is_main and self.checkpoint_every_epoch is not None and (self.checkpoint_every_epoch == 1 or (epoch != 0 and epoch % self.checkpoint_every_epoch == 0)):
