@@ -349,7 +349,8 @@ class MeshAutoencoderTrainer(Module):
         for epoch in range(num_epochs): 
             total_epoch_loss, total_epoch_recon_loss, total_epoch_commit_loss = 0.0, 0.0, 0.0
             
-            progress_bar = tqdm(enumerate(self.dataloader), desc=f'Epoch {epoch + 1}/{num_epochs}', total=len(self.dataloader))
+            progress_bar = tqdm(enumerate(self.dataloader), desc=f'Epoch {epoch + 1}/{num_epochs}',
+                                dynamic_ncols=True, total=len(self.dataloader))
             for batch_idx, batch in progress_bar:
                 is_last = (batch_idx+1) % self.grad_accum_every == 0
                 maybe_no_sync = partial(self.accelerator.no_sync, self.model) if not is_last else nullcontext
@@ -372,7 +373,7 @@ class MeshAutoencoderTrainer(Module):
                 total_epoch_recon_loss += recon_loss.item()
                 total_epoch_commit_loss += commit_loss.sum().item()  
                 
-                progress_bar.set_postfix(loss=current_loss, recon_loss = round(recon_loss.item(),3), commit_loss = round(commit_loss.sum().item(),4)) 
+                progress_bar.set_postfix(loss=current_loss, recon_loss = round(recon_loss.item(),3), commit_loss = round(commit_loss.sum().item(),4))
                     
                 if is_last or (batch_idx + 1 == len(self.dataloader)): 
                     self.optimizer.step()
@@ -692,7 +693,8 @@ class MeshTransformerTrainer(Module):
             for epoch in range(num_epochs): 
                 total_epoch_loss = 0.0 
                 
-                progress_bar = tqdm(enumerate(self.dataloader), desc=f'Epoch {epoch + 1}/{num_epochs}', total=len(self.dataloader))
+                progress_bar = tqdm(enumerate(self.dataloader), desc=f'Epoch {epoch + 1}/{num_epochs}',
+                                    dynamic_ncols=True, total=len(self.dataloader))
                 for batch_idx, batch in progress_bar: 
                         
                     is_last = (batch_idx+1) % self.grad_accum_every == 0
