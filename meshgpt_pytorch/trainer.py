@@ -424,6 +424,13 @@ class MeshAutoencoderTrainer(Module):
                 self.save(pos_commit_loss_file, overwrite = True)
                 best_recon_loss_pos_commit = avg_recon_loss
 
+            # If the average commit loss is negative we stop the training.
+            if avg_commit_loss < 0:
+                self.print(f'Stopping training at epoch {epoch} with average commit loss {avg_commit_loss}')
+                if self.is_main and self.checkpoint_every_epoch is not None:
+                    self.save(self.checkpoint_folder / f'mesh-autoencoder.ckpt.stop_at_negative_commit_loss_avg_commit_loss_{avg_commit_loss:.3f}.pt')
+                break
+
             if stop_at_loss is not None and avg_epoch_loss < stop_at_loss: 
                 self.print(f'Stopping training at epoch {epoch} with average loss {avg_epoch_loss}')
                 if self.is_main and self.checkpoint_every_epoch is not None:
