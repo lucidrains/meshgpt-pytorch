@@ -424,7 +424,8 @@ class MeshAutoencoderTrainer(Module):
                 self.save(pos_commit_loss_file, overwrite = True)
                 best_recon_loss_pos_commit = avg_recon_loss
 
-            # If the average commit loss is negative we stop the training.
+            # If the average commit loss is negative we stop the training. The user should try again with increased
+            # commit loss weight or decreased diversity_gamma. Decreasing the learning weight may also help.
             if avg_commit_loss < 0:
                 self.print(f'Stopping training at epoch {epoch} with average commit loss {avg_commit_loss}')
                 if self.is_main and self.checkpoint_every_epoch is not None:
