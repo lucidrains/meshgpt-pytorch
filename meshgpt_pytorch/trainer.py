@@ -753,12 +753,12 @@ class MeshTransformerTrainer(Module):
                 shutil.copyfile(logfile, logfile_tmp)
 
                 if self.is_main and self.checkpoint_every_epoch is not None and (self.checkpoint_every_epoch == 1 or (epoch != 0 and epoch % self.checkpoint_every_epoch == 0)):
-                    self.save(self.checkpoint_folder / f'mesh-transformer.ckpt.epoch_{epoch}_avg_loss_{avg_epoch_loss:.3f}.pt')
+                    self.save(self.checkpoint_folder / f'mesh-transformer.ckpt.epoch_{epoch}_avg_loss_{avg_epoch_loss:.5f}.pt')
                     
                 if stop_at_loss is not None and avg_epoch_loss < stop_at_loss: 
                     self.print(f'Stopping training at epoch {epoch} with average loss {avg_epoch_loss}')
                     if self.is_main and self.checkpoint_every_epoch is not None:
-                        self.save(self.checkpoint_folder / f'mesh-transformer.ckpt.stop_at_loss_avg_loss_{avg_epoch_loss:.3f}.pt') 
+                        self.save(self.checkpoint_folder / f'mesh-transformer.ckpt.stop_at_loss_avg_loss_{avg_epoch_loss:.5f}.pt')
                     break   
     
 
