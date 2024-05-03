@@ -35,6 +35,8 @@ from meshgpt_pytorch.meshgpt_pytorch import (
 
 import logging
 
+import shutil
+
 # constants
 
 DEFAULT_DDP_KWARGS = DistributedDataParallelKwargs(
@@ -337,16 +339,18 @@ class MeshAutoencoderTrainer(Module):
 
         self.print('training complete')
         
-    def train(self, logfile, num_epochs, stop_at_loss = None, diplay_graph = False):
+    def train(self, logfile, num_epochs, stop_at_loss = None, diplay_graph = False, pos_commit_loss_file = None):
         # Configure the logging
         logging.basicConfig(filename=logfile, level=logging.INFO)
+        logfile_tmp = logfile + ".tmp"
         epoch_losses, epoch_recon_losses, epoch_commit_losses = [] , [],[] 
         self.model.train() 
-        
+        best_recon_loss_pos_commit = 1e10
         for epoch in range(num_epochs): 
             total_epoch_loss, total_epoch_recon_loss, total_epoch_commit_loss = 0.0, 0.0, 0.0
-            
-            progress_bar = tqdm(enumerate(self.dataloader), desc=f'Epoch {epoch + 1}/{num_epochs}', total=len(self.dataloader))
+            total_epoch_abs_recon_loss, total_epoch_abs_commit_loss = 0.0, 0.0
+            progress_bar = tqdm(enumerate(self.dataloader), desc=f'Epoch {epoch + 1}/{num_epochs}',
+                                dynamic_ncols=True, total=len(self.dataloader))
             for batch_idx, batch in progress_bar:
                 is_last = (batch_idx+1) % self.grad_accum_every == 0
                 maybe_no_sync = partial(self.accelerator.no_sync, self.model) if not is_last else nullcontext
@@ -367,9 +371,12 @@ class MeshAutoencoderTrainer(Module):
                 current_loss = total_loss.item()
                 total_epoch_loss += current_loss
                 total_epoch_recon_loss += recon_loss.item()
-                total_epoch_commit_loss += commit_loss.sum().item()  
-                
-                progress_bar.set_postfix(loss=current_loss, recon_loss = round(recon_loss.item(),3), commit_loss = round(commit_loss.sum().item(),4)) 
+                total_epoch_commit_loss += commit_loss.sum().item()
+
+                total_epoch_abs_recon_loss += abs(recon_loss.item())
+                total_epoch_abs_commit_loss += abs(commit_loss.sum().item())
+
+                progress_bar.set_postfix(loss=current_loss, recon_loss = round(recon_loss.item(),3), commit_loss = round(commit_loss.sum().item(),4))
                     
                 if is_last or (batch_idx + 1 == len(self.dataloader)): 
                     self.optimizer.step()
@@ -387,6 +394,10 @@ class MeshAutoencoderTrainer(Module):
             
             epochOut = f'Epoch {epoch + 1} average loss: {avg_epoch_loss} recon loss: {avg_recon_loss:.4f}: commit_loss {avg_commit_loss:.4f}'
 
+            avg_abs_recon_loss = total_epoch_abs_recon_loss / len(self.dataloader)
+            avg_abs_commit_loss = total_epoch_abs_commit_loss / len(self.dataloader)
+            epochOut_abs = f'Epoch {epoch + 1} abs recon loss: {avg_abs_recon_loss:.4f}: abs_commit_loss {avg_abs_commit_loss:.4f}'
+
             if len(epoch_losses) >= 4 and avg_epoch_loss > 0:
                 avg_loss_improvement = sum(epoch_losses[-4:-1]) / 3 - avg_epoch_loss
                 epochOut += f'          avg loss speed: {avg_loss_improvement}' 
@@ -396,14 +407,31 @@ class MeshAutoencoderTrainer(Module):
                         epochOut += f' epochs left: {epochs_until_0_3:.2f}'  
                     
             self.wait() 
-            self.print(epochOut) 
+            self.print(epochOut)
+            self.print(epochOut_abs)
 
             # Add avg_epoch_loss, avg_recon_loss and avg_commit_loss to logfile:
             logging.info("Epoch: {} Average loss: {:.4f} Recon loss: {:.4f} Commit loss: {:.4f}".format(epoch+1, avg_epoch_loss, avg_recon_loss, avg_commit_loss))
-         
+            # This does not catch the average abs loss of all reconstructions, only the average for all the batches.
+            logging.info("Epoch: {} Average abs recon loss: {:.4f} Average abs commit loss: {:.4f}".format(epoch + 1, avg_abs_recon_loss, avg_abs_commit_loss))
+            shutil.copyfile(logfile, logfile_tmp)
+
             if self.is_main and self.checkpoint_every_epoch is not None and (self.checkpoint_every_epoch == 1 or (epoch != 0 and epoch % self.checkpoint_every_epoch == 0)):
                 self.save(self.checkpoint_folder / f'mesh-autoencoder.ckpt.epoch_{epoch}_avg_loss_{avg_epoch_loss:.5f}_recon_{avg_recon_loss:.4f}_commit_{avg_commit_loss:.4f}.pt')
-                
+
+            if pos_commit_loss_file is not None and avg_commit_loss > 0 and avg_recon_loss < best_recon_loss_pos_commit:
+                print("Saving model with positive commit: recon: ", avg_recon_loss, ", commit: ", avg_commit_loss)
+                self.save(pos_commit_loss_file, overwrite = True)
+                best_recon_loss_pos_commit = avg_recon_loss
+
+            # If the average commit loss is negative we stop the training. The user should try again with increased
+            # commit loss weight or decreased diversity_gamma. Decreasing the learning weight may also help.
+            if avg_commit_loss < 0:
+                self.print(f'Stopping training at epoch {epoch} with average commit loss {avg_commit_loss}')
+                if self.is_main and self.checkpoint_every_epoch is not None:
+                    self.save(self.checkpoint_folder / f'mesh-autoencoder.ckpt.stop_at_negative_commit_loss_avg_commit_loss_{avg_commit_loss:.3f}.pt')
+                break
+
             if stop_at_loss is not None and avg_epoch_loss < stop_at_loss: 
                 self.print(f'Stopping training at epoch {epoch} with average loss {avg_epoch_loss}')
                 if self.is_main and self.checkpoint_every_epoch is not None:
@@ -675,6 +703,7 @@ class MeshTransformerTrainer(Module):
             
     def train(self, logfile, num_epochs, stop_at_loss = None, diplay_graph = False):
             logging.basicConfig(filename=logfile, level=logging.INFO)
+            logfile_tmp = logfile + ".tmp"
             epoch_losses = [] 
             epoch_size = len(self.dataloader)
             self.model.train() 
@@ -682,7 +711,8 @@ class MeshTransformerTrainer(Module):
             for epoch in range(num_epochs): 
                 total_epoch_loss = 0.0 
                 
-                progress_bar = tqdm(enumerate(self.dataloader), desc=f'Epoch {epoch + 1}/{num_epochs}', total=len(self.dataloader))
+                progress_bar = tqdm(enumerate(self.dataloader), desc=f'Epoch {epoch + 1}/{num_epochs}',
+                                    dynamic_ncols=True, total=len(self.dataloader))
                 for batch_idx, batch in progress_bar: 
                         
                     is_last = (batch_idx+1) % self.grad_accum_every == 0
@@ -720,14 +750,15 @@ class MeshTransformerTrainer(Module):
 
                 # Add avg_epoch_loss, avg_recon_loss and avg_commit_loss to logfile:
                 logging.info("Epoch: {} Average loss: {:.4f}".format(epoch + 1, avg_epoch_loss))
+                shutil.copyfile(logfile, logfile_tmp)
 
                 if self.is_main and self.checkpoint_every_epoch is not None and (self.checkpoint_every_epoch == 1 or (epoch != 0 and epoch % self.checkpoint_every_epoch == 0)):
-                    self.save(self.checkpoint_folder / f'mesh-transformer.ckpt.epoch_{epoch}_avg_loss_{avg_epoch_loss:.3f}.pt')
+                    self.save(self.checkpoint_folder / f'mesh-transformer.ckpt.epoch_{epoch}_avg_loss_{avg_epoch_loss:.5f}.pt')
                     
                 if stop_at_loss is not None and avg_epoch_loss < stop_at_loss: 
                     self.print(f'Stopping training at epoch {epoch} with average loss {avg_epoch_loss}')
                     if self.is_main and self.checkpoint_every_epoch is not None:
-                        self.save(self.checkpoint_folder / f'mesh-transformer.ckpt.stop_at_loss_avg_loss_{avg_epoch_loss:.3f}.pt') 
+                        self.save(self.checkpoint_folder / f'mesh-transformer.ckpt.stop_at_loss_avg_loss_{avg_epoch_loss:.5f}.pt')
                     break   
     
 
