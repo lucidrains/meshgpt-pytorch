@@ -339,7 +339,8 @@ class MeshAutoencoderTrainer(Module):
 
         self.print('training complete')
         
-    def train(self, logfile, num_epochs, stop_at_loss = None, diplay_graph = False, pos_commit_loss_file = None):
+    def train(self, logfile, num_epochs, stop_at_loss = None, diplay_graph = False, pos_commit_loss_file = None,
+              stop_at_neg_commit_loss = False):
         # Configure the logging
         logging.basicConfig(filename=logfile, level=logging.INFO)
         logfile_tmp = logfile + ".tmp"
@@ -426,7 +427,7 @@ class MeshAutoencoderTrainer(Module):
 
             # If the average commit loss is negative we stop the training. The user should try again with increased
             # commit loss weight or decreased diversity_gamma. Decreasing the learning weight may also help.
-            if avg_commit_loss < 0:
+            if stop_at_neg_commit_loss and avg_commit_loss < 0:
                 self.print(f'Stopping training at epoch {epoch} with average commit loss {avg_commit_loss}')
                 if self.is_main and self.checkpoint_every_epoch is not None:
                     self.save(self.checkpoint_folder / f'mesh-autoencoder.ckpt.stop_at_negative_commit_loss_avg_commit_loss_{avg_commit_loss:.3f}.pt')
@@ -620,7 +621,8 @@ class MeshTransformerTrainer(Module):
             model = self.unwrapped_model.state_dict(),
             optimizer = self.optimizer.state_dict(),
             step = self.step.item(),
-            version = __version__
+            version = __version__,
+            config = self.unwrapped_model._config
         )
 
         torch.save(pkg, str(path))
