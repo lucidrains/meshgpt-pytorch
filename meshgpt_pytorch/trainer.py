@@ -341,9 +341,10 @@ class MeshAutoencoderTrainer(Module):
         
     def train(self, logfile, num_epochs, stop_at_loss = None, diplay_graph = False, pos_commit_loss_file = None,
               stop_at_neg_commit_loss = False):
-        # Configure the logging
-        logging.basicConfig(filename=logfile, level=logging.INFO)
-        logfile_tmp = logfile + ".tmp"
+        if logfile is not None:
+            # Configure the logging
+            logging.basicConfig(filename=logfile, level=logging.INFO)
+            logfile_tmp = logfile + ".tmp"
         epoch_losses, epoch_recon_losses, epoch_commit_losses = [] , [],[] 
         self.model.train() 
         best_recon_loss_pos_commit = 1e10
@@ -411,11 +412,12 @@ class MeshAutoencoderTrainer(Module):
             self.print(epochOut)
             self.print(epochOut_abs)
 
-            # Add avg_epoch_loss, avg_recon_loss and avg_commit_loss to logfile:
-            logging.info("Epoch: {} Average loss: {:.4f} Recon loss: {:.4f} Commit loss: {:.4f}".format(epoch+1, avg_epoch_loss, avg_recon_loss, avg_commit_loss))
-            # This does not catch the average abs loss of all reconstructions, only the average for all the batches.
-            logging.info("Epoch: {} Average abs recon loss: {:.4f} Average abs commit loss: {:.4f}".format(epoch + 1, avg_abs_recon_loss, avg_abs_commit_loss))
-            shutil.copyfile(logfile, logfile_tmp)
+            if logfile is not None:
+                # Add avg_epoch_loss, avg_recon_loss and avg_commit_loss to logfile:
+                logging.info("Epoch: {} Average loss: {:.4f} Recon loss: {:.4f} Commit loss: {:.4f}".format(epoch+1, avg_epoch_loss, avg_recon_loss, avg_commit_loss))
+                # This does not catch the average abs loss of all reconstructions, only the average for all the batches.
+                logging.info("Epoch: {} Average abs recon loss: {:.4f} Average abs commit loss: {:.4f}".format(epoch + 1, avg_abs_recon_loss, avg_abs_commit_loss))
+                shutil.copyfile(logfile, logfile_tmp)
 
             if self.is_main and self.checkpoint_every_epoch is not None and (self.checkpoint_every_epoch == 1 or (epoch != 0 and epoch % self.checkpoint_every_epoch == 0)):
                 self.save(self.checkpoint_folder / f'mesh-autoencoder.ckpt.epoch_{epoch}_avg_loss_{avg_epoch_loss:.5f}_recon_{avg_recon_loss:.4f}_commit_{avg_commit_loss:.4f}.pt')
@@ -704,8 +706,10 @@ class MeshTransformerTrainer(Module):
  
             
     def train(self, logfile, num_epochs, stop_at_loss = None, diplay_graph = False):
-            logging.basicConfig(filename=logfile, level=logging.INFO)
-            logfile_tmp = logfile + ".tmp"
+
+            if logfile is not None:
+                logging.basicConfig(filename=logfile, level=logging.INFO)
+                logfile_tmp = logfile + ".tmp"
             epoch_losses = [] 
             epoch_size = len(self.dataloader)
             self.model.train() 
@@ -750,9 +754,10 @@ class MeshTransformerTrainer(Module):
                 self.wait()
                 self.print(epochOut)
 
-                # Add avg_epoch_loss, avg_recon_loss and avg_commit_loss to logfile:
-                logging.info("Epoch: {} Average loss: {:.4f}".format(epoch + 1, avg_epoch_loss))
-                shutil.copyfile(logfile, logfile_tmp)
+                if logfile is not None:
+                    # Add avg_epoch_loss, avg_recon_loss and avg_commit_loss to logfile:
+                    logging.info("Epoch: {} Average loss: {:.4f}".format(epoch + 1, avg_epoch_loss))
+                    shutil.copyfile(logfile, logfile_tmp)
 
                 if self.is_main and self.checkpoint_every_epoch is not None and (self.checkpoint_every_epoch == 1 or (epoch != 0 and epoch % self.checkpoint_every_epoch == 0)):
                     self.save(self.checkpoint_folder / f'mesh-transformer.ckpt.epoch_{epoch}_avg_loss_{avg_epoch_loss:.5f}.pt')
