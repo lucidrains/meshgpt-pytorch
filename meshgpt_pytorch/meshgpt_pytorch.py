@@ -116,6 +116,20 @@ def pad_to_length(t, length, dim = -1, value = 0, right = True):
     padding = (0, remainder) if right else (remainder, 0)
     return pad_at_dim(t, padding, dim = dim, value = value)
 
+def masked_mean(tensor, mask, dim = -1, eps = 1e-5):
+    if not exists(mask):
+        return tensor.mean(dim = dim)
+
+    mask = rearrange(mask, '... -> ... 1')
+    tensor = tensor.masked_fill(~mask, 0.)
+
+    total_el = mask.sum(dim = dim)
+    num = tensor.sum(dim = dim)
+    den = total_el.float().clamp(min = eps)
+    mean = num / den
+    mean = mean.masked_fill(total_el == 0, 0.)
+    return mean
+
 # continuous embed
 
 def ContinuousEmbed(dim_cont):
@@ -284,7 +298,6 @@ class Block(Module):
         self.dropout = nn.Dropout(dropout)
         self.act = nn.SiLU()
 
-
     def forward(self, x, mask = None):
         if exists(mask):
             x = x.masked_fill(~mask, 0.)
@@ -299,7 +312,6 @@ class Block(Module):
         x = self.dropout(x)
 
         return x
-
 
 class ResnetBlock(Module):
     def __init__(
@@ -323,7 +335,7 @@ class ResnetBlock(Module):
     ):
         res = self.residual_conv(x)
         h = self.block1(x, mask = mask)
-        h = self.block2(h, mask = mask) 
+        h = self.block2(h, mask = mask)
         h = self.excite(h, mask = mask)
         return h + res
 
@@ -412,7 +424,8 @@ class MeshAutoencoder(Module):
             threshold_ema_dead_code = 2,
         ),
         rlfq_kwargs: dict = dict(
-            frac_per_sample_entropy = 1.
+            frac_per_sample_entropy = 1.,
+            soft_clamp_input_value = 10.
         ),
         rvq_stochastic_sample_codes = True,
         sageconv_kwargs: dict = dict(
@@ -434,7 +447,7 @@ class MeshAutoencoder(Module):
         ),
         use_linear_attn = True,
         pad_id = -1,
-        sageconv_dropout = 0.,
+        flash_attn = True,
         attn_dropout = 0.,
         ff_dropout = 0.,
         resnet_dropout = 0,
@@ -483,10 +496,7 @@ class MeshAutoencoder(Module):
 
         self.project_in = nn.Linear(init_dim, dim_codebook)
 
-        # initial sage conv
-
-        sageconv_kwargs = {**sageconv_kwargs }
-
+        # initial sage conv 
         init_encoder_dim, *encoder_dims_through_depth = encoder_dims_through_depth
         curr_dim = init_encoder_dim
 
@@ -894,7 +904,6 @@ class MeshAutoencoder(Module):
         vertices:       TensorType['b', 'nv', 3, float],
         faces:          TensorType['b', 'nf', 'nvf', int],
         face_edges:     Optional[TensorType['b', 'e', 2, int]] = None,
-        texts: Optional[List[str]] = None,
         return_codes = False,
         return_loss_breakdown = False,
         return_recon_faces = False,
@@ -1016,7 +1025,7 @@ class MeshTransformer(Module):
         attn_heads = 16,
         attn_kwargs: dict = dict(
             ff_glu = True,
-            num_mem_kv = 4
+            attn_num_mem_kv = 4
         ),
         cross_attn_num_mem_kv = 4, # needed for preventing nan when dropping out text condition
         dropout = 0.,
@@ -1045,8 +1054,13 @@ class MeshTransformer(Module):
         self.codebook_size = autoencoder.codebook_size
         self.num_quantizers = autoencoder.num_quantizers
 
-        self.sos_token = nn.Parameter(torch.randn(dim_fine))
         self.eos_token_id = self.codebook_size
+
+        # the fine transformer sos token
+        # as well as a projection of pooled text embeddings to condition it
+        # (todo) - sos token should be moved to the coarse transformer stage
+
+        self.sos_token = nn.Parameter(torch.randn(dim_fine))
 
         # they use axial positional embeddings
 
@@ -1073,7 +1087,11 @@ class MeshTransformer(Module):
                 model_types = text_condition_model_types,
                 cond_drop_prob = text_condition_cond_drop_prob
             )
-            cross_attn_dim_context = self.conditioner.dim_latent
+
+            dim_text = self.conditioner.dim_latent
+            cross_attn_dim_context = dim_text
+
+            self.to_sos_text_cond = nn.Linear(dim_text, dim_fine)
 
         # for summarizing the vertices of each face
 
@@ -1090,8 +1108,8 @@ class MeshTransformer(Module):
         self.decoder = Decoder(
             dim = dim,
             depth = attn_depth,
-            dim_head = attn_dim_head,
             heads = attn_heads,
+            attn_dim_head = attn_dim_head,
             attn_flash = flash_attn,
             attn_dropout = dropout,
             ff_dropout = dropout,
@@ -1107,15 +1125,15 @@ class MeshTransformer(Module):
 
         # address a weakness in attention
 
-        self.fine_gateloop_block = GateLoopBlock(dim, depth = fine_pre_gateloop_depth, use_heinsen = gateloop_use_heinsen) if fine_pre_gateloop_depth > 0 else None
+        self.fine_gateloop_block = GateLoopBlock(dim, depth = fine_pre_gateloop_depth) if fine_pre_gateloop_depth > 0 else None
 
         # decoding the vertices, 2-stage hierarchy
 
         self.fine_decoder = Decoder(
             dim = dim_fine,
             depth = fine_attn_depth,
-            dim_head = attn_dim_head,
             heads = attn_heads,
+            attn_dim_head = attn_dim_head,
             attn_flash = flash_attn,
             attn_dropout = dropout,
             ff_dropout = dropout,
@@ -1443,9 +1461,23 @@ class MeshTransformer(Module):
 
         attended_face_codes = self.maybe_project_coarse_to_fine(attended_face_codes)
 
-        # auto prepend sos token
+        # repeat sos token across batch
 
         sos = repeat(self.sos_token, 'd -> b d', b = batch)
+
+        # condition sos token if needed
+
+        if self.condition_on_text:
+            pooled_text_embed = masked_mean(
+                maybe_dropped_text_embeds.embed,
+                maybe_dropped_text_embeds.mask,
+                dim = 1
+            )
+
+            sos_cond = self.to_sos_text_cond(pooled_text_embed)
+            sos = sos + sos_cond
+
+        # auto prepend sos token
 
         attended_face_codes_with_sos, _ = pack([sos, attended_face_codes], 'b * d')
 
