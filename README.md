@@ -109,7 +109,9 @@ loss.backward()
 
 # after much training of transformer, you can now sample novel 3d assets conditioned on text
 
-faces_coordinates, face_mask = transformer.generate(texts = ['a long table'])
+faces_coordinates, face_mask = transformer.generate(texts = ['a long table'],
+    cond_scale = 3.  # a cond_scale > 1. will enable classifier free guidance - can be placed anywhere from 3. - 10.
+)
 
 ```
 
