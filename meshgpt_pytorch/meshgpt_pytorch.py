@@ -1025,7 +1025,7 @@ class MeshTransformer(Module):
         attn_heads = 16,
         attn_kwargs: dict = dict(
             ff_glu = True,
-            num_mem_kv = 4
+            attn_num_mem_kv = 4
         ),
         cross_attn_num_mem_kv = 4, # needed for preventing nan when dropping out text condition
         dropout = 0.,
@@ -1108,8 +1108,8 @@ class MeshTransformer(Module):
         self.decoder = Decoder(
             dim = dim,
             depth = attn_depth,
-            dim_head = attn_dim_head,
             heads = attn_heads,
+            attn_dim_head = attn_dim_head,
             attn_flash = flash_attn,
             attn_dropout = dropout,
             ff_dropout = dropout,
@@ -1132,8 +1132,8 @@ class MeshTransformer(Module):
         self.fine_decoder = Decoder(
             dim = dim_fine,
             depth = fine_attn_depth,
-            dim_head = attn_dim_head,
             heads = attn_heads,
+            attn_dim_head = attn_dim_head,
             attn_flash = flash_attn,
             attn_dropout = dropout,
             ff_dropout = dropout,
