@@ -424,7 +424,8 @@ class MeshAutoencoder(Module):
             threshold_ema_dead_code = 2,
         ),
         rlfq_kwargs: dict = dict(
-            frac_per_sample_entropy = 1.
+            frac_per_sample_entropy = 1.,
+            soft_clamp_input_value = 10.
         ),
         rvq_stochastic_sample_codes = True,
         sageconv_kwargs: dict = dict(
