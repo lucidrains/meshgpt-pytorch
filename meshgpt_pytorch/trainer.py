@@ -21,7 +21,7 @@ from accelerate.utils import DistributedDataParallelKwargs
 
 from beartype import beartype
 from beartype.door import is_bearable
-from beartype.typing import Optional, Tuple, Type, List
+from beartype.typing import Tuple, Type, List
 
 from ema_pytorch import EMA
 
@@ -75,14 +75,14 @@ class MeshAutoencoderTrainer(Module):
         num_train_steps: int,
         batch_size: int,
         grad_accum_every: int,
-        val_dataset: Optional[Dataset] = None,
+        val_dataset: Dataset | None = None,
         val_every: int = 100,
         val_num_batches: int = 5,
         learning_rate: float = 1e-4,
         weight_decay: float = 0.,
-        max_grad_norm: Optional[float] = None,
+        max_grad_norm: float | None = None,
         ema_kwargs: dict = dict(),
-        scheduler: Optional[Type[_LRScheduler]] = None,
+        scheduler: Type[_LRScheduler] | None = None,
         scheduler_kwargs: dict = dict(),
         accelerator_kwargs: dict = dict(),
         optimizer_kwargs: dict = dict(),
@@ -334,11 +334,11 @@ class MeshTransformerTrainer(Module):
         grad_accum_every: int,
         learning_rate: float = 2e-4,
         weight_decay: float = 0.,
-        max_grad_norm: Optional[float] = 0.5,
-        val_dataset: Optional[Dataset] = None,
+        max_grad_norm: float | None = 0.5,
+        val_dataset: Dataset | None = None,
         val_every = 1,
         val_num_batches = 5,
-        scheduler: Optional[Type[_LRScheduler]] = None,
+        scheduler: Type[_LRScheduler] | None = None,
         scheduler_kwargs: dict = dict(),
         ema_kwargs: dict = dict(),
         accelerator_kwargs: dict = dict(),

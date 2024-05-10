@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from pathlib import Path
 from functools import partial
 from math import ceil, pi, sqrt
@@ -14,7 +16,7 @@ from torchtyping import TensorType
 from pytorch_custom_utils import save_load
 
 from beartype import beartype
-from beartype.typing import Union, Tuple, Callable, Optional, List, Dict, Any
+from beartype.typing import Tuple, Callable, List, Dict, Any
 
 from einops import rearrange, repeat, reduce, pack, unpack
 from einops.layers.torch import Rearrange
@@ -822,7 +824,7 @@ class MeshAutoencoder(Module):
     def decode_from_codes_to_faces(
         self,
         codes: Tensor,
-        face_mask: Optional[TensorType['b', 'n', bool]] = None,
+        face_mask: TensorType['b', 'n', bool] | None = None,
         return_discrete_codes = False
     ):
         codes = rearrange(codes, 'b ... -> b (...)')
@@ -903,7 +905,7 @@ class MeshAutoencoder(Module):
         *,
         vertices:       TensorType['b', 'nv', 3, float],
         faces:          TensorType['b', 'nf', 'nvf', int],
-        face_edges:     Optional[TensorType['b', 'e', 2, int]] = None,
+        face_edges:     TensorType['b', 'e', 2, int] | None = None,
         return_codes = False,
         return_loss_breakdown = False,
         return_recon_faces = False,
@@ -1017,7 +1019,7 @@ class MeshTransformer(Module):
         self,
         autoencoder: MeshAutoencoder,
         *,
-        dim: Union[int, Tuple[int, int]] = 512,
+        dim: int | Tuple[int, int] = 512,
         max_seq_len = 8192,
         flash_attn = True,
         attn_depth = 12,
@@ -1156,7 +1158,7 @@ class MeshTransformer(Module):
 
     @beartype
     @torch.no_grad()
-    def embed_texts(self, texts: Union[str, List[str]]):
+    def embed_texts(self, texts: str | List[str]):
         single_text = not isinstance(texts, list)
         if single_text:
             texts = [texts]
@@ -1174,18 +1176,18 @@ class MeshTransformer(Module):
     @beartype
     def generate(
         self,
-        prompt: Optional[Tensor] = None,
-        batch_size: Optional[int] = None,
+        prompt: Tensor | None = None,
+        batch_size: int | None = None,
         filter_logits_fn: Callable = top_k,
         filter_kwargs: dict = dict(),
         temperature = 1.,
         return_codes = False,
-        texts: Optional[List[str]] = None,
-        text_embeds: Optional[Tensor] = None,
+        texts: List[str] | None = None,
+        text_embeds: Tensor | None = None,
         cond_scale = 1.,
         cache_kv = True,
         max_seq_len = None,
-        face_coords_to_file: Optional[Callable[[Tensor], Any]] = None
+        face_coords_to_file: Callable[[Tensor], Any] | None = None
     ):
         max_seq_len = default(max_seq_len, self.max_seq_len)
 
@@ -1292,9 +1294,9 @@ class MeshTransformer(Module):
         *,
         vertices:       TensorType['b', 'nv', 3, int],
         faces:          TensorType['b', 'nf', 'nvf', int],
-        face_edges:     Optional[TensorType['b', 'e', 2, int]] = None,
-        codes:          Optional[Tensor] = None,
-        cache:          Optional[LayerIntermediates] = None,
+        face_edges:     TensorType['b', 'e', 2, int] | None = None,
+        codes:          Tensor | None = None,
+        cache:          LayerIntermediates | None = None,
         **kwargs
     ):
         if not exists(codes):
@@ -1314,8 +1316,8 @@ class MeshTransformer(Module):
         return_cache = False,
         append_eos = True,
         cache = None,
-        texts: Optional[List[str]] = None,
-        text_embeds: Optional[Tensor] = None,
+        texts: List[str] | None = None,
+        text_embeds: Tensor | None = None,
         cond_drop_prob = None
     ):
         # handle text conditions
