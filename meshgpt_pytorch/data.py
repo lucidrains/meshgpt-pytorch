@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from pathlib import Path
 from functools import partial
 import torch
@@ -14,7 +16,7 @@ from einops import rearrange, reduce
 from torch import nn, Tensor
 
 from beartype import beartype
-from beartype.typing import Tuple, List, Union, Optional, Callable, Dict, Callable
+from beartype.typing import Tuple, List, Callable, Dict, Callable
 
 from torchtyping import TensorType
 
@@ -266,7 +268,7 @@ class DatasetFromTransforms(Dataset):
         self,
         folder: str,
         transforms: Dict[str, Callable[[Path], Tuple[Vertices, Faces]]],
-        data_kwargs: Optional[List[str]] = None,
+        data_kwargs: List[str] | None = None,
         augment_fn: Callable = identity
     ):
         folder = Path(folder)
