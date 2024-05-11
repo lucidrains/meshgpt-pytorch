@@ -1139,6 +1139,9 @@ class MeshTransformer(Module):
             attn_flash = flash_attn,
             attn_dropout = dropout,
             ff_dropout = dropout,
+            cross_attend = condition_on_text,
+            cross_attn_dim_context = cross_attn_dim_context,
+            cross_attn_num_mem_kv = cross_attn_num_mem_kv,
             **attn_kwargs
         )
 
@@ -1338,9 +1341,11 @@ class MeshTransformer(Module):
                 cond_drop_prob = cond_drop_prob
             )
 
+            text_embed, text_mask = maybe_dropped_text_embeds
+
             attn_context_kwargs = dict(
-                context = maybe_dropped_text_embeds.embed,
-                context_mask = maybe_dropped_text_embeds.mask
+                context = text_embed,
+                context_mask = text_mask
             )
 
         # take care of codes that may be flattened
@@ -1471,8 +1476,8 @@ class MeshTransformer(Module):
 
         if self.condition_on_text:
             pooled_text_embed = masked_mean(
-                maybe_dropped_text_embeds.embed,
-                maybe_dropped_text_embeds.mask,
+                text_embed,
+                text_mask,
                 dim = 1
             )
 
@@ -1512,15 +1517,25 @@ class MeshTransformer(Module):
                     ck, cv = map(lambda t: t[:, -1, :, :curr_vertex_pos], (ck, cv))
                     attn_intermediate.cached_kv = (ck, cv)
 
-        one_face = fine_vertex_codes.shape[1] == 1
+        num_faces = fine_vertex_codes.shape[1]
+        one_face = num_faces == 1
 
         fine_vertex_codes = rearrange(fine_vertex_codes, 'b nf n d -> (b nf) n d')
 
         if one_face:
             fine_vertex_codes = fine_vertex_codes[:, :(curr_vertex_pos + 1)]
 
+        fine_attn_context_kwargs = dict()
+
+        if self.condition_on_text:
+            fine_attn_context_kwargs = dict(
+                context = repeat(text_embed, 'b ... -> (b nf) ...', nf = num_faces),
+                context_mask = repeat(text_mask, 'b ... -> (b nf) ...', nf = num_faces)
+            )
+
         attended_vertex_codes, fine_cache = self.fine_decoder(
             fine_vertex_codes,
+            **fine_attn_context_kwargs,
             cache = fine_cache,
             return_hiddens = True
         )
