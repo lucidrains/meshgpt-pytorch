@@ -1038,10 +1038,11 @@ class MeshTransformer(Module):
         fine_attn_dim_head = 32,
         fine_attn_heads = 8,
         pad_id = -1,
+        num_sos_tokens = 1,
         condition_on_text = False,
         text_condition_model_types = ('t5',),
         text_condition_cond_drop_prob = 0.25,
-        quads = False
+        quads = False,
     ):
         super().__init__()
         self.num_vertices_per_face = 3 if not quads else 4
@@ -1060,9 +1061,11 @@ class MeshTransformer(Module):
 
         # the fine transformer sos token
         # as well as a projection of pooled text embeddings to condition it
-        # (todo) - sos token should be moved to the coarse transformer stage
 
-        self.sos_token = nn.Parameter(torch.randn(dim_fine))
+        assert num_sos_tokens > 0
+
+        self.num_sos_tokens = num_sos_tokens
+        self.sos_token = nn.Parameter(torch.randn(num_sos_tokens, dim))
 
         # they use axial positional embeddings
 
@@ -1444,8 +1447,8 @@ class MeshTransformer(Module):
         else:
             # auto prepend sos token
 
-            sos = repeat(self.sos_token, 'd -> b d', b = batch)
-            face_codes, _ = pack([sos, face_codes], 'b * d')
+            sos = repeat(self.sos_token, 'n d -> b n d', b = batch)
+            face_codes, packed_sos_shape = pack([sos, face_codes], 'b * d')
 
             # if no kv cache, always call first transformer
 
@@ -1469,6 +1472,13 @@ class MeshTransformer(Module):
             attended_face_codes = None
 
         attended_face_codes = safe_cat((cached_attended_face_codes, attended_face_codes), dim = -2)
+
+        # if calling without kv cache, pool the sos tokens, if greater than 1 sos token
+
+        if not exists(cache) and self.num_sos_tokens > 1:
+            sos_tokens, attended_face_codes = unpack(attended_face_codes, packed_sos_shape, 'b * d')
+            pooled_sos_token = reduce(sos_tokens, 'b n d -> b 1 d', 'mean')
+            attended_face_codes = torch.cat((pooled_sos_token, attended_face_codes), dim = 1)
 
         # maybe project from coarse to fine dimension for hierarchical transformers
 
