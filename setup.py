@@ -35,8 +35,8 @@ setup(
     'torch_geometric',
     'torchtyping',
     'tqdm',
-    'vector-quantize-pytorch>=1.12.8',
-    'x-transformers>=1.26.0',
+    'vector-quantize-pytorch>=1.14.22',
+    'x-transformers>=1.29.2',
   ],
   classifiers=[
     'Development Status :: 4 - Beta',
