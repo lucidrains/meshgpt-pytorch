@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from pathlib import Path
 from functools import partial
 from math import ceil, pi, sqrt
@@ -14,7 +16,7 @@ from torchtyping import TensorType
 from pytorch_custom_utils import save_load
 
 from beartype import beartype
-from beartype.typing import Union, Tuple, Callable, Optional, List, Dict, Any
+from beartype.typing import Tuple, Callable, List, Dict, Any
 
 from einops import rearrange, repeat, reduce, pack, unpack
 from einops.layers.torch import Rearrange
@@ -115,6 +117,20 @@ def pad_to_length(t, length, dim = -1, value = 0, right = True):
 
     padding = (0, remainder) if right else (remainder, 0)
     return pad_at_dim(t, padding, dim = dim, value = value)
+
+def masked_mean(tensor, mask, dim = -1, eps = 1e-5):
+    if not exists(mask):
+        return tensor.mean(dim = dim)
+
+    mask = rearrange(mask, '... -> ... 1')
+    tensor = tensor.masked_fill(~mask, 0.)
+
+    total_el = mask.sum(dim = dim)
+    num = tensor.sum(dim = dim)
+    den = total_el.float().clamp(min = eps)
+    mean = num / den
+    mean = mean.masked_fill(total_el == 0, 0.)
+    return mean
 
 # continuous embed
 
@@ -284,7 +300,6 @@ class Block(Module):
         self.dropout = nn.Dropout(dropout)
         self.act = nn.SiLU()
 
-
     def forward(self, x, mask = None):
         if exists(mask):
             x = x.masked_fill(~mask, 0.)
@@ -299,7 +314,6 @@ class Block(Module):
         x = self.dropout(x)
 
         return x
-
 
 class ResnetBlock(Module):
     def __init__(
@@ -323,7 +337,7 @@ class ResnetBlock(Module):
     ):
         res = self.residual_conv(x)
         h = self.block1(x, mask = mask)
-        h = self.block2(h, mask = mask) 
+        h = self.block2(h, mask = mask)
         h = self.excite(h, mask = mask)
         return h + res
 
@@ -412,7 +426,8 @@ class MeshAutoencoder(Module):
             threshold_ema_dead_code = 2,
         ),
         rlfq_kwargs: dict = dict(
-            frac_per_sample_entropy = 1.
+            frac_per_sample_entropy = 1.,
+            soft_clamp_input_value = 10.
         ),
         rvq_stochastic_sample_codes = True,
         sageconv_kwargs: dict = dict(
@@ -434,7 +449,7 @@ class MeshAutoencoder(Module):
         ),
         use_linear_attn = True,
         pad_id = -1,
-        sageconv_dropout = 0.,
+        flash_attn = True,
         attn_dropout = 0.,
         ff_dropout = 0.,
         resnet_dropout = 0,
@@ -484,9 +499,6 @@ class MeshAutoencoder(Module):
         self.project_in = nn.Linear(init_dim, dim_codebook)
 
         # initial sage conv
-
-        sageconv_kwargs = {**sageconv_kwargs }
-
         init_encoder_dim, *encoder_dims_through_depth = encoder_dims_through_depth
         curr_dim = init_encoder_dim
 
@@ -812,7 +824,7 @@ class MeshAutoencoder(Module):
     def decode_from_codes_to_faces(
         self,
         codes: Tensor,
-        face_mask: Optional[TensorType['b', 'n', bool]] = None,
+        face_mask: TensorType['b', 'n', bool] | None = None,
         return_discrete_codes = False
     ):
         codes = rearrange(codes, 'b ... -> b (...)')
@@ -893,8 +905,7 @@ class MeshAutoencoder(Module):
         *,
         vertices:       TensorType['b', 'nv', 3, float],
         faces:          TensorType['b', 'nf', 'nvf', int],
-        face_edges:     Optional[TensorType['b', 'e', 2, int]] = None,
-        texts: Optional[List[str]] = None,
+        face_edges:     TensorType['b', 'e', 2, int] | None = None,
         return_codes = False,
         return_loss_breakdown = False,
         return_recon_faces = False,
@@ -1008,7 +1019,7 @@ class MeshTransformer(Module):
         self,
         autoencoder: MeshAutoencoder,
         *,
-        dim: Union[int, Tuple[int, int]] = 512,
+        dim: int | Tuple[int, int] = 512,
         max_seq_len = 8192,
         flash_attn = True,
         attn_depth = 12,
@@ -1016,7 +1027,7 @@ class MeshTransformer(Module):
         attn_heads = 16,
         attn_kwargs: dict = dict(
             ff_glu = True,
-            num_mem_kv = 4
+            attn_num_mem_kv = 4
         ),
         cross_attn_num_mem_kv = 4, # needed for preventing nan when dropping out text condition
         dropout = 0.,
@@ -1027,10 +1038,11 @@ class MeshTransformer(Module):
         fine_attn_dim_head = 32,
         fine_attn_heads = 8,
         pad_id = -1,
+        num_sos_tokens = 1,
         condition_on_text = False,
         text_condition_model_types = ('t5',),
         text_condition_cond_drop_prob = 0.25,
-        quads = False
+        quads = False,
     ):
         super().__init__()
         self.num_vertices_per_face = 3 if not quads else 4
@@ -1045,8 +1057,15 @@ class MeshTransformer(Module):
         self.codebook_size = autoencoder.codebook_size
         self.num_quantizers = autoencoder.num_quantizers
 
-        self.sos_token = nn.Parameter(torch.randn(dim_fine))
         self.eos_token_id = self.codebook_size
+
+        # the fine transformer sos token
+        # as well as a projection of pooled text embeddings to condition it
+
+        assert num_sos_tokens > 0
+
+        self.num_sos_tokens = num_sos_tokens
+        self.sos_token = nn.Parameter(torch.randn(num_sos_tokens, dim))
 
         # they use axial positional embeddings
 
@@ -1073,7 +1092,11 @@ class MeshTransformer(Module):
                 model_types = text_condition_model_types,
                 cond_drop_prob = text_condition_cond_drop_prob
             )
-            cross_attn_dim_context = self.conditioner.dim_latent
+
+            dim_text = self.conditioner.dim_latent
+            cross_attn_dim_context = dim_text
+
+            self.to_sos_text_cond = nn.Linear(dim_text, dim_fine)
 
         # for summarizing the vertices of each face
 
@@ -1090,8 +1113,8 @@ class MeshTransformer(Module):
         self.decoder = Decoder(
             dim = dim,
             depth = attn_depth,
-            dim_head = attn_dim_head,
             heads = attn_heads,
+            attn_dim_head = attn_dim_head,
             attn_flash = flash_attn,
             attn_dropout = dropout,
             ff_dropout = dropout,
@@ -1107,15 +1130,15 @@ class MeshTransformer(Module):
 
         # address a weakness in attention
 
-        self.fine_gateloop_block = GateLoopBlock(dim, depth = fine_pre_gateloop_depth, use_heinsen = gateloop_use_heinsen) if fine_pre_gateloop_depth > 0 else None
+        self.fine_gateloop_block = GateLoopBlock(dim, depth = fine_pre_gateloop_depth) if fine_pre_gateloop_depth > 0 else None
 
         # decoding the vertices, 2-stage hierarchy
 
         self.fine_decoder = Decoder(
             dim = dim_fine,
             depth = fine_attn_depth,
-            dim_head = attn_dim_head,
             heads = attn_heads,
+            attn_dim_head = attn_dim_head,
             attn_flash = flash_attn,
             attn_dropout = dropout,
             ff_dropout = dropout,
@@ -1138,7 +1161,7 @@ class MeshTransformer(Module):
 
     @beartype
     @torch.no_grad()
-    def embed_texts(self, texts: Union[str, List[str]]):
+    def embed_texts(self, texts: str | List[str]):
         single_text = not isinstance(texts, list)
         if single_text:
             texts = [texts]
@@ -1156,18 +1179,18 @@ class MeshTransformer(Module):
     @beartype
     def generate(
         self,
-        prompt: Optional[Tensor] = None,
-        batch_size: Optional[int] = None,
+        prompt: Tensor | None = None,
+        batch_size: int | None = None,
         filter_logits_fn: Callable = top_k,
         filter_kwargs: dict = dict(),
         temperature = 1.,
         return_codes = False,
-        texts: Optional[List[str]] = None,
-        text_embeds: Optional[Tensor] = None,
+        texts: List[str] | None = None,
+        text_embeds: Tensor | None = None,
         cond_scale = 1.,
         cache_kv = True,
         max_seq_len = None,
-        face_coords_to_file: Optional[Callable[[Tensor], Any]] = None
+        face_coords_to_file: Callable[[Tensor], Any] | None = None
     ):
         max_seq_len = default(max_seq_len, self.max_seq_len)
 
@@ -1274,9 +1297,9 @@ class MeshTransformer(Module):
         *,
         vertices:       TensorType['b', 'nv', 3, int],
         faces:          TensorType['b', 'nf', 'nvf', int],
-        face_edges:     Optional[TensorType['b', 'e', 2, int]] = None,
-        codes:          Optional[Tensor] = None,
-        cache:          Optional[LayerIntermediates] = None,
+        face_edges:     TensorType['b', 'e', 2, int] | None = None,
+        codes:          Tensor | None = None,
+        cache:          LayerIntermediates | None = None,
         **kwargs
     ):
         if not exists(codes):
@@ -1296,8 +1319,8 @@ class MeshTransformer(Module):
         return_cache = False,
         append_eos = True,
         cache = None,
-        texts: Optional[List[str]] = None,
-        text_embeds: Optional[Tensor] = None,
+        texts: List[str] | None = None,
+        text_embeds: Tensor | None = None,
         cond_drop_prob = None
     ):
         # handle text conditions
@@ -1318,9 +1341,11 @@ class MeshTransformer(Module):
                 cond_drop_prob = cond_drop_prob
             )
 
+            text_embed, text_mask = maybe_dropped_text_embeds
+
             attn_context_kwargs = dict(
-                context = maybe_dropped_text_embeds.embed,
-                context_mask = maybe_dropped_text_embeds.mask
+                context = text_embed,
+                context_mask = text_mask
             )
 
         # take care of codes that may be flattened
@@ -1416,8 +1441,17 @@ class MeshTransformer(Module):
 
         if exists(cache):
             cached_face_codes_len = cached_attended_face_codes.shape[-2]
-            need_call_first_transformer = face_codes_len > cached_face_codes_len
+            cached_face_codes_len_without_sos = cached_face_codes_len - 1
+
+            need_call_first_transformer = face_codes_len > cached_face_codes_len_without_sos
         else:
+            # auto prepend sos token
+
+            sos = repeat(self.sos_token, 'n d -> b n d', b = batch)
+            face_codes, packed_sos_shape = pack([sos, face_codes], 'b * d')
+
+            # if no kv cache, always call first transformer
+
             need_call_first_transformer = True
 
         should_cache_fine = not divisible_by(curr_vertex_pos + 1, num_tokens_per_face)
@@ -1434,23 +1468,24 @@ class MeshTransformer(Module):
                 return_hiddens = True,
                 **attn_context_kwargs
             )
-
-            attended_face_codes = safe_cat((cached_attended_face_codes, attended_face_codes), dim = -2)
         else:
-            attended_face_codes = cached_attended_face_codes
+            attended_face_codes = None
+
+        attended_face_codes = safe_cat((cached_attended_face_codes, attended_face_codes), dim = -2)
+
+        # if calling without kv cache, pool the sos tokens, if greater than 1 sos token
+
+        if not exists(cache) and self.num_sos_tokens > 1:
+            sos_tokens, attended_face_codes = unpack(attended_face_codes, packed_sos_shape, 'b * d')
+            pooled_sos_token = reduce(sos_tokens, 'b n d -> b 1 d', 'mean')
+            attended_face_codes = torch.cat((pooled_sos_token, attended_face_codes), dim = 1)
 
         # maybe project from coarse to fine dimension for hierarchical transformers
 
         attended_face_codes = self.maybe_project_coarse_to_fine(attended_face_codes)
 
-        # auto prepend sos token
-
-        sos = repeat(self.sos_token, 'd -> b d', b = batch)
-
-        attended_face_codes_with_sos, _ = pack([sos, attended_face_codes], 'b * d')
-
-        grouped_codes = pad_to_length(grouped_codes, attended_face_codes_with_sos.shape[-2], dim = 1)
-        fine_vertex_codes, _ = pack([attended_face_codes_with_sos, grouped_codes], 'b n * d')
+        grouped_codes = pad_to_length(grouped_codes, attended_face_codes.shape[-2], dim = 1)
+        fine_vertex_codes, _ = pack([attended_face_codes, grouped_codes], 'b n * d')
 
         fine_vertex_codes = fine_vertex_codes[..., :-1, :]
 
@@ -1478,7 +1513,8 @@ class MeshTransformer(Module):
                     ck, cv = map(lambda t: t[:, -1, :, :curr_vertex_pos], (ck, cv))
                     attn_intermediate.cached_kv = (ck, cv)
 
-        one_face = fine_vertex_codes.shape[1] == 1
+        num_faces = fine_vertex_codes.shape[1]
+        one_face = num_faces == 1
 
         fine_vertex_codes = rearrange(fine_vertex_codes, 'b nf n d -> (b nf) n d')
 
