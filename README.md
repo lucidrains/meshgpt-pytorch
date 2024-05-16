@@ -24,6 +24,8 @@ Please join <a href="https://discord.gg/xBPBXfcFHd"><img alt="Join us on Discord
 
 - <a href="https://github.com/MarcusLoppe">Marcus</a> yet again for running the experiments to validate that it is possible to extend the system from triangles to <a href="https://github.com/lucidrains/meshgpt-pytorch/issues/54#issuecomment-1906789076">quads</a>
 
+- <a href="https://github.com/MarcusLoppe">Marcus</a> for identifying <a href="https://github.com/lucidrains/meshgpt-pytorch/issues/80">an issue</a> with text conditioning and for running all the experiments that led to it being resolved
+
 ## Install
 
 ```bash

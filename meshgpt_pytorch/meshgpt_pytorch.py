@@ -1038,7 +1038,7 @@ class MeshTransformer(Module):
         fine_attn_dim_head = 32,
         fine_attn_heads = 8,
         pad_id = -1,
-        num_sos_tokens = 1,
+        num_sos_tokens = None,
         condition_on_text = False,
         text_condition_model_types = ('t5',),
         text_condition_cond_drop_prob = 0.25,
@@ -1062,6 +1062,7 @@ class MeshTransformer(Module):
         # the fine transformer sos token
         # as well as a projection of pooled text embeddings to condition it
 
+        num_sos_tokens = default(num_sos_tokens, 1 if not condition_on_text else 4)
         assert num_sos_tokens > 0
 
         self.num_sos_tokens = num_sos_tokens
