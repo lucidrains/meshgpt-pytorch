@@ -27,12 +27,112 @@ https://drive.google.com/drive/folders/1C1l5QrCtg9UulMJE5n_on4A9O9Gn0CC5?usp=sha
 The auto-encoder results shows that it's possible to compress many mesh models into tokens which then can be decoded and reconstruct a mesh near perfection!<br/>
 The auto-encoder was trained for 9 epochs for 20hrs on a single P100 GPU.<br/><br/>
 
+
 The more compute heavy part is to train a transformer that can use these tokens learn the auto-encoder 'language'.<br/>
 Using the codes as a vocabablity and learn the relationship between the the codes and it's ordering requires a lot compute to train compared to the auto-encoder.<br/>
 So by using a single P100 GPU it will probaly take a few weeks till I can get out a pre-trained transformer. 
 <br/>
 Let me know if you wish to donate any compute or I can provide you with the dataset + training notebook.
 <br/><br/>
+
+- <a href="https://github.com/qixuema">Quexi Ma</a> for finding numerous bugs with automatic eos handling
+
+- <a href="https://github.com/thuliu-yt16">Yingtian</a> for finding a bug with the gaussian blurring of the positions for spatial label smoothing
+
+- <a href="https://github.com/MarcusLoppe">Marcus</a> yet again for running the experiments to validate that it is possible to extend the system from triangles to <a href="https://github.com/lucidrains/meshgpt-pytorch/issues/54#issuecomment-1906789076">quads</a>
+
+- <a href="https://github.com/MarcusLoppe">Marcus</a> for identifying <a href="https://github.com/lucidrains/meshgpt-pytorch/issues/80">an issue</a> with text conditioning and for running all the experiments that led to it being resolved
+
+## Install
+
+```bash
+$ pip install meshgpt-pytorch
+```
+
+## Usage
+
+```python
+import torch
+
+from meshgpt_pytorch import (
+    MeshAutoencoder,
+    MeshTransformer
+)
+
+# autoencoder
+
+autoencoder = MeshAutoencoder(
+    num_discrete_coors = 128
+)
+
+# mock inputs
+
+vertices = torch.randn((2, 121, 3))            # (batch, num vertices, coor (3))
+faces = torch.randint(0, 121, (2, 64, 3))      # (batch, num faces, vertices (3))
+
+# make sure faces are padded with `-1` for variable lengthed meshes
+
+# forward in the faces
+
+loss = autoencoder(
+    vertices = vertices,
+    faces = faces
+)
+
+loss.backward()
+
+# after much training...
+# you can pass in the raw face data above to train a transformer to model this sequence of face vertices
+
+transformer = MeshTransformer(
+    autoencoder,
+    dim = 512,
+    max_seq_len = 768
+)
+
+loss = transformer(
+    vertices = vertices,
+    faces = faces
+)
+
+loss.backward()
+
+# after much training of transformer, you can now sample novel 3d assets
+
+faces_coordinates, face_mask = transformer.generate()
+
+# (batch, num faces, vertices (3), coordinates (3)), (batch, num faces)
+# now post process for the generated 3d asset
+
+```
+
+For <a href="https://www.youtube.com/watch?v=NXX0dKw4SjI">text-conditioned 3d shape synthesis</a>, simply set `condition_on_text = True` on your `MeshTransformer`, and then pass in your list of descriptions as the `texts` keyword argument
+
+ex.
+```python
+transformer = MeshTransformer(
+    autoencoder,
+    dim = 512,
+    max_seq_len = 768,
+    condition_on_text = True
+)
+
+
+loss = transformer(
+    vertices = vertices,
+    faces = faces,
+    texts = ['a high chair', 'a small teapot'],
+)
+
+loss.backward()
+
+# after much training of transformer, you can now sample novel 3d assets conditioned on text
+
+faces_coordinates, face_mask = transformer.generate(
+    texts = ['a long table'],
+    cond_scale = 3.  # a cond_scale > 1. will enable classifier free guidance - can be placed anywhere from 3. - 10.
+)
+
 
 ```
 num_layers = 23 
