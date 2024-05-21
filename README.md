@@ -27,7 +27,6 @@ https://drive.google.com/drive/folders/1C1l5QrCtg9UulMJE5n_on4A9O9Gn0CC5?usp=sha
 The auto-encoder results shows that it's possible to compress many mesh models into tokens which then can be decoded and reconstruct a mesh near perfection!<br/>
 The auto-encoder was trained for 9 epochs for 20hrs on a single P100 GPU.<br/><br/>
 
-
 The more compute heavy part is to train a transformer that can use these tokens learn the auto-encoder 'language'.<br/>
 Using the codes as a vocabablity and learn the relationship between the the codes and it's ordering requires a lot compute to train compared to the auto-encoder.<br/>
 So by using a single P100 GPU it will probaly take a few weeks till I can get out a pre-trained transformer. 
@@ -133,6 +132,8 @@ faces_coordinates, face_mask = transformer.generate(
     cond_scale = 3.  # a cond_scale > 1. will enable classifier free guidance - can be placed anywhere from 3. - 10.
 )
 
+=======
+>>>>>>> MarcusLoppe/main
 
 ```
 num_layers = 23 

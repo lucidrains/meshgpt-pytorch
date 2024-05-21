@@ -160,8 +160,10 @@ def get_derived_face_features(
 
     edge1, edge2, *_ = (face_coords - shifted_face_coords).unbind(dim = 2)
 
-    normals = l2norm(torch.cross(edge1, edge2, dim = -1))
-    area = normals.norm(dim = -1, keepdim = True) * 0.5
+    cross_product = torch.cross(edge1, edge2, dim = -1)
+
+    normals = l2norm(cross_product)
+    area = cross_product.norm(dim = -1, keepdim = True) * 0.5
 
     return dict(
         angles = angles,
