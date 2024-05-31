@@ -36,7 +36,7 @@ setup(
     'torchtyping',
     'tqdm',
     'vector-quantize-pytorch>=1.14.22',
-    'x-transformers>=1.29.2',
+    'x-transformers>=1.30.4',
   ],
   classifiers=[
     'Development Status :: 4 - Beta',
