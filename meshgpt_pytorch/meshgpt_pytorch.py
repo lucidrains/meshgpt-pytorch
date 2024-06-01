@@ -251,18 +251,24 @@ class FiLM(Module):
     def __init__(self, dim, dim_out = None):
         super().__init__()
         dim_out = default(dim_out, dim)
-        linear = nn.Linear(dim, dim_out * 2)
 
-        self.to_gamma_beta = nn.Sequential(
-            linear,
-            Rearrange('b (gb d) -> gb b 1 d', gb = 2)
-        )
+        self.to_gamma = nn.Linear(dim, dim_out, bias = False)
+        self.to_beta = nn.Linear(dim, dim_out)
 
-        nn.init.zeros_(linear.weight)
-        nn.init.constant_(linear.bias, 1.)
+        self.gamma_mult = nn.Parameter(torch.zeros(1,))
+        self.beta_mult = nn.Parameter(torch.zeros(1,))
 
     def forward(self, x, cond):
-        gamma, beta = self.to_gamma_beta(cond)
+        gamma, beta = self.to_gamma(cond), self.to_beta(cond)
+        gamma, beta = tuple(rearrange(t, 'b d -> b 1 d') for t in (gamma, beta))
+
+        # for initializing to identity
+
+        gamma = (1 + self.gamma_mult * gamma)
+        beta = beta * self.beta_mult
+
+        # classic film
+
         return x * gamma + beta
 
 class PixelNorm(Module):
