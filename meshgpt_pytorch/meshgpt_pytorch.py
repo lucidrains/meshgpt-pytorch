@@ -1308,7 +1308,7 @@ class MeshTransformer(Module):
         # remove a potential extra token from eos, if breaked early
 
         code_len = codes.shape[-1]
-        round_down_code_len = code_len // self.num_quantizers * self.num_quantizers
+        round_down_code_len = code_len // self.num_vertices_per_face * self.num_vertices_per_face
         codes = codes[:, :round_down_code_len]
 
         # early return of raw residual quantizer codes
