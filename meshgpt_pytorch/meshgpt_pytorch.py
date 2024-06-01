@@ -247,6 +247,24 @@ def scatter_mean(
 
 # resnet block
 
+class FiLM(Module):
+    def __init__(self, dim, dim_out = None):
+        super().__init__()
+        dim_out = default(dim_out, dim)
+        linear = nn.Linear(dim, dim_out * 2)
+
+        self.to_gamma_beta = nn.Sequential(
+            linear,
+            Rearrange('b (gb d) -> gb b 1 d', gb = 2)
+        )
+
+        nn.init.zeros_(linear.weight)
+        nn.init.constant_(linear.bias, 1.)
+
+    def forward(self, x, cond):
+        gamma, beta = self.to_gamma_beta(cond)
+        return x * gamma + beta
+
 class PixelNorm(Module):
     def __init__(self, dim, eps = 1e-4):
         super().__init__()
@@ -1039,6 +1057,7 @@ class MeshTransformer(Module):
         fine_attn_depth = 2,
         fine_attn_dim_head = 32,
         fine_attn_heads = 8,
+        fine_cross_attend_text = False,
         pad_id = -1,
         num_sos_tokens = None,
         condition_on_text = False,
@@ -1099,7 +1118,8 @@ class MeshTransformer(Module):
             dim_text = self.conditioner.dim_latent
             cross_attn_dim_context = dim_text
 
-            self.to_sos_text_cond = nn.Linear(dim_text, dim_fine)
+            self.text_coarse_film_cond = FiLM(dim_text, dim)
+            self.text_fine_film_cond = FiLM(dim_text, dim_fine)
 
         # for summarizing the vertices of each face
 
@@ -1137,6 +1157,8 @@ class MeshTransformer(Module):
 
         # decoding the vertices, 2-stage hierarchy
 
+        self.fine_cross_attend_text = condition_on_text and fine_cross_attend_text
+
         self.fine_decoder = Decoder(
             dim = dim_fine,
             depth = fine_attn_depth,
@@ -1145,6 +1167,9 @@ class MeshTransformer(Module):
             attn_flash = flash_attn,
             attn_dropout = dropout,
             ff_dropout = dropout,
+            cross_attend = self.fine_cross_attend_text,
+            cross_attn_dim_context = cross_attn_dim_context,
+            cross_attn_num_mem_kv = cross_attn_num_mem_kv,
             **attn_kwargs
         )
 
@@ -1346,6 +1371,8 @@ class MeshTransformer(Module):
 
             text_embed, text_mask = maybe_dropped_text_embeds
 
+            pooled_text_embed = masked_mean(text_embed, text_mask, dim = 1)
+
             attn_context_kwargs = dict(
                 context = text_embed,
                 context_mask = text_mask
@@ -1459,6 +1486,11 @@ class MeshTransformer(Module):
 
         should_cache_fine = not divisible_by(curr_vertex_pos + 1, num_tokens_per_face)
 
+        # condition face codes with text if needed
+
+        if self.condition_on_text:
+            face_codes = self.text_coarse_film_cond(face_codes, pooled_text_embed)
+
         # attention on face codes (coarse)
 
         if need_call_first_transformer:
@@ -1512,8 +1544,17 @@ class MeshTransformer(Module):
             if exists(fine_cache):
                 for attn_intermediate in fine_cache.attn_intermediates:
                     ck, cv = attn_intermediate.cached_kv
-                    ck, cv = map(lambda t: rearrange(t, '(b nf) ... -> b nf ...', b = batch), (ck, cv))
-                    ck, cv = map(lambda t: t[:, -1, :, :curr_vertex_pos], (ck, cv))
+                    ck, cv = [rearrange(t, '(b nf) ... -> b nf ...', b = batch) for t in (ck, cv)]
+
+                    # when operating on the cached key / values, treat self attention and cross attention differently
+
+                    layer_type = attn_intermediate.layer_type
+
+                    if layer_type == 'a':
+                        ck, cv = [t[:, -1, :, :curr_vertex_pos] for t in (ck, cv)]
+                    elif layer_type == 'c':
+                        ck, cv = [t[:, -1, ...] for t in (ck, cv)]
+
                     attn_intermediate.cached_kv = (ck, cv)
 
         num_faces = fine_vertex_codes.shape[1]
@@ -1524,9 +1565,37 @@ class MeshTransformer(Module):
         if one_face:
             fine_vertex_codes = fine_vertex_codes[:, :(curr_vertex_pos + 1)]
 
+        # handle maybe cross attention conditioning of fine transformer with text
+
+        fine_attn_context_kwargs = dict()
+
+        # optional text cross attention conditioning for fine transformer
+
+        if self.fine_cross_attend_text:
+            repeat_batch = fine_vertex_codes.shape[0] // text_embed.shape[0]
+
+            text_embed = repeat(text_embed, 'b ... -> (b r) ...' , r = repeat_batch)
+            text_mask = repeat(text_mask, 'b ... -> (b r) ...', r = repeat_batch)
+
+            fine_attn_context_kwargs = dict(
+                context = text_embed,
+                context_mask = text_mask
+            )
+
+        # also film condition the fine vertex codes
+
+        if self.condition_on_text:
+            repeat_batch = fine_vertex_codes.shape[0] // pooled_text_embed.shape[0]
+
+            pooled_text_embed = repeat(pooled_text_embed, 'b ... -> (b r) ...', r = repeat_batch)
+            fine_vertex_codes = self.text_fine_film_cond(fine_vertex_codes, pooled_text_embed)
+
+        # fine transformer
+
         attended_vertex_codes, fine_cache = self.fine_decoder(
             fine_vertex_codes,
             cache = fine_cache,
+            **fine_attn_context_kwargs,
             return_hiddens = True
         )
 
