@@ -22,7 +22,7 @@ setup(
   install_requires=[
     'accelerate>=0.25.0',
     'beartype',
-    'classifier-free-guidance-pytorch>=0.5.1',
+    'classifier-free-guidance-pytorch>=0.6.0',
     'einops>=0.7.0',
     'einx[torch]>=0.1.3',
     'ema-pytorch',
@@ -36,7 +36,7 @@ setup(
     'torchtyping',
     'tqdm',
     'vector-quantize-pytorch>=1.14.22',
-    'x-transformers>=1.29.2',
+    'x-transformers>=1.30.6',
   ],
   classifiers=[
     'Development Status :: 4 - Beta',
