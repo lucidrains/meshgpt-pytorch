@@ -1122,7 +1122,8 @@ class MeshTransformer(Module):
         if condition_on_text:
             self.conditioner = TextEmbeddingReturner(
                 model_types = text_condition_model_types,
-                cond_drop_prob = text_condition_cond_drop_prob
+                cond_drop_prob = text_condition_cond_drop_prob,
+                text_embed_pad_value = -1.
             )
 
             dim_text = self.conditioner.dim_latent
