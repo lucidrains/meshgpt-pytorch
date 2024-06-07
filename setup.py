@@ -22,6 +22,7 @@ setup(
   install_requires=[
     'accelerate>=0.25.0',
     'beartype',
+    "huggingface_hub>=0.21.4",
     'classifier-free-guidance-pytorch>=0.6.2',
     'einops>=0.7.0',
     'einx[torch]>=0.1.3',
