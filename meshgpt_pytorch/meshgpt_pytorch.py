@@ -16,7 +16,8 @@ from torchtyping import TensorType
 from pytorch_custom_utils import save_load
 
 from beartype import beartype
-from beartype.typing import Tuple, Callable, List, Dict, Any
+from beartype.typing import Tuple, Callable, List, Dict, Any, Optional, Union
+from huggingface_hub import PyTorchModelHubMixin, hf_hub_download
 
 from einops import rearrange, repeat, reduce, pack, unpack
 from einops.layers.torch import Rearrange
@@ -418,7 +419,7 @@ class GateLoopBlock(Module):
 # main classes
 
 @save_load(version = __version__)
-class MeshAutoencoder(Module):
+class MeshAutoencoder(Module, PyTorchModelHubMixin):
     @beartype
     def __init__(
         self,
@@ -634,6 +635,41 @@ class MeshAutoencoder(Module):
 
         self.commit_loss_weight = commit_loss_weight
         self.bin_smooth_blur_sigma = bin_smooth_blur_sigma
+        
+    @classmethod
+    def _from_pretrained(
+        cls,
+        *,
+        model_id: str,
+        revision: Optional[str],
+        cache_dir: Optional[Union[str, Path]],
+        force_download: bool,
+        proxies: Optional[Dict],
+        resume_download: bool,
+        local_files_only: bool,
+        token: Union[str, bool, None],
+        map_location: str = "cpu",
+        strict: bool = False,
+        **model_kwargs,
+    ): 
+        model_filename = "mesh-autoencoder.bin" 
+        model_file = Path(model_id) / model_filename 
+        if not model_file.exists(): 
+            model_file = hf_hub_download(
+                repo_id=model_id,
+                filename=model_filename,
+                revision=revision,
+                cache_dir=cache_dir,
+                force_download=force_download,
+                proxies=proxies,
+                resume_download=resume_download,
+                token=token,
+                local_files_only=local_files_only,
+            )    
+        model = cls.init_and_load(model_file,strict=strict) 
+        model.to(map_location)
+        return model
+    
 
     @beartype
     def encode(
@@ -1042,7 +1078,7 @@ class MeshAutoencoder(Module):
         return recon_faces, total_loss, loss_breakdown
 
 @save_load(version = __version__)
-class MeshTransformer(Module):
+class MeshTransformer(Module, PyTorchModelHubMixin):
     @beartype
     def __init__(
         self,
@@ -1193,6 +1229,40 @@ class MeshTransformer(Module):
 
         self.pad_id = pad_id
         autoencoder.pad_id = pad_id
+
+    @classmethod
+    def _from_pretrained(
+        cls,
+        *,
+        model_id: str,
+        revision: Optional[str],
+        cache_dir: Optional[Union[str, Path]],
+        force_download: bool,
+        proxies: Optional[Dict],
+        resume_download: bool,
+        local_files_only: bool,
+        token: Union[str, bool, None],
+        map_location: str = "cpu",
+        strict: bool = False,
+        **model_kwargs,
+    ): 
+        model_filename = "mesh-transformer.bin" 
+        model_file = Path(model_id) / model_filename 
+        if not model_file.exists(): 
+            model_file = hf_hub_download(
+                repo_id=model_id,
+                filename=model_filename,
+                revision=revision,
+                cache_dir=cache_dir,
+                force_download=force_download,
+                proxies=proxies,
+                resume_download=resume_download,
+                token=token,
+                local_files_only=local_files_only,
+            )    
+        model = cls.init_and_load(model_file,strict=strict) 
+        model.to(map_location)
+        return model
 
     @property
     def device(self):
