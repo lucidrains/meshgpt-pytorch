@@ -8,6 +8,8 @@ Will also add text conditioning, for eventual text-to-3d asset
 
 Please join <a href="https://discord.gg/xBPBXfcFHd"><img alt="Join us on Discord" src="https://img.shields.io/discord/823813159592001537?color=5865F2&logo=discord&logoColor=white"></a> if you are interested in collaborating with others to replicate this work
 
+Update: <a href="https://github.com/MarcusLoppe">Marcus</a> has trained and uploaded <a href="https://huggingface.co/MarcusLoren/MeshGPT-preview">a working model</a> to 🤗 Huggingface!
+
 ## Appreciation
 
 - <a href="https://stability.ai/">StabilityAI</a>, <a href="https://a16z.com/supporting-the-open-source-ai-community/">A16Z Open Source AI Grant Program</a>, and <a href="https://huggingface.co/">🤗 Huggingface</a> for the generous sponsorships, as well as my other sponsors, for affording me the independence to open source current artificial intelligence research
