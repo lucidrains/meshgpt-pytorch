@@ -16,7 +16,8 @@ from torchtyping import TensorType
 from pytorch_custom_utils import save_load
 
 from beartype import beartype
-from beartype.typing import Tuple, Callable, List, Dict, Any,Optional, Union
+from beartype.typing import Tuple, Callable, List, Dict, Any
+
 from huggingface_hub import PyTorchModelHubMixin, hf_hub_download
 
 from einops import rearrange, repeat, reduce, pack, unpack
@@ -641,13 +642,13 @@ class MeshAutoencoder(Module):
         cls,
         *,
         model_id: str,
-        revision: Optional[str],
-        cache_dir: Optional[Union[str, Path]],
+        revision: str | None,
+        cache_dir: str | Path | None,
         force_download: bool,
-        proxies: Optional[Dict],
+        proxies: Dict | None,
         resume_download: bool,
         local_files_only: bool,
-        token: Union[str, bool, None],
+        token: str | bool | None,
         map_location: str = "cpu",
         strict: bool = False,
         **model_kwargs,
@@ -1234,19 +1235,20 @@ class MeshTransformer(Module,PyTorchModelHubMixin):
         cls,
         *,
         model_id: str,
-        revision: Optional[str],
-        cache_dir: Optional[Union[str, Path]],
+        revision: str | None,
+        cache_dir: str | Path | None,
         force_download: bool,
-        proxies: Optional[Dict],
+        proxies: Dict | None,
         resume_download: bool,
         local_files_only: bool,
-        token: Union[str, bool, None],
+        token: str | bool | None,
         map_location: str = "cpu",
         strict: bool = False,
         **model_kwargs,
     ): 
         model_filename = "mesh-transformer.bin" 
         model_file = Path(model_id) / model_filename 
+
         if not model_file.exists(): 
             model_file = hf_hub_download(
                 repo_id=model_id,
@@ -1258,10 +1260,12 @@ class MeshTransformer(Module,PyTorchModelHubMixin):
                 resume_download=resume_download,
                 token=token,
                 local_files_only=local_files_only,
-            )    
+            )
+
         model = cls.init_and_load(model_file,strict=strict) 
         model.to(map_location)
         return model
+
     @property
     def device(self):
         return next(self.parameters()).device
