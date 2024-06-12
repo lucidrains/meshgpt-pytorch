@@ -48,7 +48,7 @@ class MeshDataset(Dataset):
     """
     def __init__(self, data): 
         self.data = data 
-        print(f"[MeshDataset] Created from {len(self.data)} entrys")
+        print(f"[MeshDataset] Created from {len(self.data)} entries")
 
     def __len__(self):
         return len(self.data)
@@ -59,7 +59,7 @@ class MeshDataset(Dataset):
     
     def save(self, path):  
         np.savez_compressed(path, self.data, allow_pickle=True) 
-        print(f"[MeshDataset] Saved {len(self.data)} entrys at {path}")
+        print(f"[MeshDataset] Saved {len(self.data)} entries at {path}")
         
     @classmethod
     def load(cls, path):   
@@ -67,7 +67,7 @@ class MeshDataset(Dataset):
         data = []
         for item in loaded_data["arr_0"]:
             data.append(item)  
-        print(f"[MeshDataset] Loaded {len(data)} entrys")
+        print(f"[MeshDataset] Loaded {len(data)} entries")
         return cls(data) 
     def sort_dataset_keys(self):
         desired_order = ['vertices', 'faces', 'face_edges', 'texts','text_embeds','codes'] 
@@ -83,7 +83,7 @@ class MeshDataset(Dataset):
                 i += 1
             
         self.sort_dataset_keys()
-        print(f"[MeshDataset] Generated face_edges for {i}/{len(self.data)} entrys")
+        print(f"[MeshDataset] Generated face_edges for {i}/{len(self.data)} entries")
 
     def generate_codes(self, autoencoder : MeshAutoencoder, batch_size = 25): 
         total_batches = (len(self.data) + batch_size - 1) // batch_size
@@ -109,7 +109,7 @@ class MeshDataset(Dataset):
                 item['codes'] = item_codes_masked 
                 
         self.sort_dataset_keys()
-        print(f"[MeshDataset] Generated codes for {len(self.data)} entrys")
+        print(f"[MeshDataset] Generated codes for {len(self.data)} entries")
     
     def embed_texts(self, transformer : MeshTransformer, batch_size = 50): 
         unique_texts = set(item['texts'] for item in self.data)
