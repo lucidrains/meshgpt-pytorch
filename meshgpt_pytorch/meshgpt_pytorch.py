@@ -153,6 +153,7 @@ def derive_angle(x, y, eps = 1e-5):
     return z.clip(-1 + eps, 1 - eps).arccos()
 
 @torch.no_grad()
+@typecheck
 def get_derived_face_features(
     face_coords: Float['b nf nvf 3']  # 3 or 4 vertices with 3 coordinates
 ):
