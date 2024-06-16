@@ -132,6 +132,14 @@ mesh_token_ids = autoencoder.tokenize(
 # (batch, num face vertices, residual quantized layer)
 ```
 
+## Typecheck
+
+At the project root, run
+
+```bash
+$ cp .env.sample .env
+```
+
 ## Todo
 
 - [x] autoencoder
