@@ -2,20 +2,19 @@ from __future__ import annotations
 
 from pathlib import Path
 from functools import partial
+
 import torch
 from torch import Tensor
 from torch import is_tensor
-import torch.nn.functional as F
 from torch.utils.data import Dataset
 from torch.nn.utils.rnn import pad_sequence
 
-import numpy as np
 from numpy.lib.format import open_memmap
 
 from einops import rearrange, reduce
 
 from beartype import beartype
-from beartype.typing import Tuple, List, Callable, Dict, Callable
+from beartype.typing import Tuple, List, Callable, Dict
 
 from torchtyping import TensorType
 

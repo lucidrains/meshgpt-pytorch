@@ -11,12 +11,10 @@ import torch.nn.functional as F
 from torch.utils.checkpoint import checkpoint
 from torch.cuda.amp import autocast
 
-from torchtyping import TensorType
-
 from pytorch_custom_utils import save_load
 
-from beartype import beartype
 from beartype.typing import Tuple, Callable, List, Dict, Any
+from meshgpt_pytorch.typing import Float, Int, Bool, typecheck
 
 from huggingface_hub import PyTorchModelHubMixin, hf_hub_download
 
@@ -26,7 +24,6 @@ from einops.layers.torch import Rearrange
 from einx import get_at
 
 from x_transformers import Decoder
-from x_transformers.attend import Attend
 from x_transformers.x_transformers import RMSNorm, FeedForward, LayerIntermediates
 
 from x_transformers.autoregressive_wrapper import (
@@ -78,8 +75,8 @@ def divisible_by(num, den):
 def is_odd(n):
     return not divisible_by(n, 2)
 
-def is_empty(l):
-    return len(l) == 0
+def is_empty(x):
+    return len(x) == 0
 
 def is_tensor_empty(t: Tensor):
     return t.numel() == 0
@@ -157,7 +154,7 @@ def derive_angle(x, y, eps = 1e-5):
 
 @torch.no_grad()
 def get_derived_face_features(
-    face_coords: TensorType['b', 'nf', 'nvf', 3, float]  # 3 or 4 vertices with 3 coordinates
+    face_coords: Float['b nf nvf 3']  # 3 or 4 vertices with 3 coordinates
 ):
     shifted_face_coords = torch.cat((face_coords[:, :, -1:], face_coords[:, :, :-1]), dim = 2)
 
@@ -178,7 +175,7 @@ def get_derived_face_features(
 
 # tensor helper functions
 
-@beartype
+@typecheck
 def discretize(
     t: Tensor,
     *,
@@ -194,7 +191,7 @@ def discretize(
 
     return t.round().long().clamp(min = 0, max = num_discrete - 1)
 
-@beartype
+@typecheck
 def undiscretize(
     t: Tensor,
     *,
@@ -210,7 +207,7 @@ def undiscretize(
     t /= num_discrete
     return t * (hi - lo) + lo
 
-@beartype
+@typecheck
 def gaussian_blur_1d(
     t: Tensor,
     *,
@@ -234,7 +231,7 @@ def gaussian_blur_1d(
     out = F.conv1d(t, kernel, padding = half_width, groups = channels)
     return rearrange(out, 'b c n -> b n c')
 
-@beartype
+@typecheck
 def scatter_mean(
     tgt: Tensor,
     indices: Tensor,
@@ -421,7 +418,7 @@ class GateLoopBlock(Module):
 
 @save_load(version = __version__)
 class MeshAutoencoder(Module):
-    @beartype
+    @typecheck
     def __init__(
         self,
         num_discrete_coors = 128,
@@ -671,15 +668,15 @@ class MeshAutoencoder(Module):
         model.to(map_location)
         return model
     
-    @beartype
+    @typecheck
     def encode(
         self,
         *,
-        vertices:         TensorType['b', 'nv', 3, float],
-        faces:            TensorType['b', 'nf', 'nvf', int],
-        face_edges:       TensorType['b', 'e', 2, int],
-        face_mask:        TensorType['b', 'nf', bool],
-        face_edges_mask:  TensorType['b', 'e', bool],
+        vertices:         Float['b nv 3'],
+        faces:            Int['b nf nvf'],
+        face_edges:       Int['b e 2'],
+        face_mask:        Bool['b nf'],
+        face_edges_mask:  Bool['b e'],
         return_face_coordinates = False
     ):
         """
@@ -692,7 +689,6 @@ class MeshAutoencoder(Module):
         d - embed dim
         """
 
-        batch, num_vertices, num_coors, device = *vertices.shape, vertices.device
         _, num_faces, num_vertices_per_face = faces.shape
 
         assert self.num_vertices_per_face == num_vertices_per_face
@@ -773,18 +769,18 @@ class MeshAutoencoder(Module):
 
         return face_embed, discrete_face_coords
 
-    @beartype
+    @typecheck
     def quantize(
         self,
         *,
-        faces: TensorType['b', 'nf', 'nvf', int],
-        face_mask: TensorType['b', 'n', bool],
-        face_embed: TensorType['b', 'nf', 'd', float],
+        faces: Int['b nf nvf'],
+        face_mask: Bool['b n'],
+        face_embed: Float['b nf d'],
         pad_id = None,
         rvq_sample_codebook_temp = 1.
     ):
         pad_id = default(pad_id, self.pad_id)
-        batch, num_faces, device = *faces.shape[:2], faces.device
+        batch, device = faces.shape[0], faces.device
 
         max_vertex_index = faces.amax()
         num_vertices = int(max_vertex_index.item() + 1)
@@ -858,11 +854,11 @@ class MeshAutoencoder(Module):
 
         return face_embed_output, codes_output, commit_loss
 
-    @beartype
+    @typecheck
     def decode(
         self,
-        quantized: TensorType['b', 'n', 'd', float],
-        face_mask:  TensorType['b', 'n', bool]
+        quantized: Float['b n d'],
+        face_mask:  Bool['b n']
     ):
         conv_face_mask = rearrange(face_mask, 'b n -> b 1 n')
 
@@ -884,12 +880,12 @@ class MeshAutoencoder(Module):
 
         return rearrange(x, 'b d n -> b n d')
 
-    @beartype
+    @typecheck
     @torch.no_grad()
     def decode_from_codes_to_faces(
         self,
         codes: Tensor,
-        face_mask: TensorType['b', 'n', bool] | None = None,
+        face_mask: Bool['b n'] | None = None,
         return_discrete_codes = False
     ):
         codes = rearrange(codes, 'b ... -> b (...)')
@@ -964,13 +960,13 @@ class MeshAutoencoder(Module):
 
         return codes
 
-    @beartype
+    @typecheck
     def forward(
         self,
         *,
-        vertices:       TensorType['b', 'nv', 3, float],
-        faces:          TensorType['b', 'nf', 'nvf', int],
-        face_edges:     TensorType['b', 'e', 2, int] | None = None,
+        vertices:       Float['b nv 3'],
+        faces:          Int['b nf nvf'],
+        face_edges:     Int['b e 2'] | None = None,
         return_codes = False,
         return_loss_breakdown = False,
         return_recon_faces = False,
@@ -980,7 +976,7 @@ class MeshAutoencoder(Module):
         if not exists(face_edges):
             face_edges = derive_face_edges_from_faces(faces, pad_id = self.pad_id)
 
-        num_faces, num_face_edges, device = faces.shape[1], face_edges.shape[1], faces.device
+        device = faces.device
 
         face_mask = reduce(faces != self.pad_id, 'b nf c -> b nf', 'all')
         face_edges_mask = reduce(face_edges != self.pad_id, 'b e ij -> b e', 'all')
@@ -1079,7 +1075,7 @@ class MeshAutoencoder(Module):
 
 @save_load(version = __version__)
 class MeshTransformer(Module,PyTorchModelHubMixin):
-    @beartype
+    @typecheck
     def __init__(
         self,
         autoencoder: MeshAutoencoder,
@@ -1270,7 +1266,7 @@ class MeshTransformer(Module,PyTorchModelHubMixin):
     def device(self):
         return next(self.parameters()).device
 
-    @beartype
+    @typecheck
     @torch.no_grad()
     def embed_texts(self, texts: str | List[str]):
         single_text = not isinstance(texts, list)
@@ -1287,7 +1283,7 @@ class MeshTransformer(Module,PyTorchModelHubMixin):
 
     @eval_decorator
     @torch.no_grad()
-    @beartype
+    @typecheck
     def generate(
         self,
         prompt: Tensor | None = None,
@@ -1406,9 +1402,9 @@ class MeshTransformer(Module,PyTorchModelHubMixin):
     def forward(
         self,
         *,
-        vertices:       TensorType['b', 'nv', 3, int],
-        faces:          TensorType['b', 'nf', 'nvf', int],
-        face_edges:     TensorType['b', 'e', 2, int] | None = None,
+        vertices:       Int['b nv 3'],
+        faces:          Int['b nf nvf'],
+        face_edges:     Int['b e 2'] | None = None,
         codes:          Tensor | None = None,
         cache:          LayerIntermediates | None = None,
         **kwargs
