@@ -143,16 +143,13 @@ class MeshAutoencoderTrainer(Module):
                 drop_last = True,
                 collate_fn = partial(custom_collate, pad_id = model.pad_id)
             )
-
-<<<<<<< HEAD
-        self.data_kwargs = data_kwargs
-=======
+            
         if hasattr(dataset, 'data_kwargs') and exists(dataset.data_kwargs):
             assert beartype_isinstance(dataset.data_kwargs, List[str])
             self.data_kwargs = dataset.data_kwargs
         else:
             self.data_kwargs = data_kwargs
->>>>>>> upstream/main
+ 
 
         (
             self.model,
@@ -506,16 +503,12 @@ class MeshTransformerTrainer(Module):
                 drop_last = True,
                 collate_fn = partial(custom_collate, pad_id = model.pad_id)
             )
-
-<<<<<<< HEAD
-        self.data_kwargs = data_kwargs
-=======
+ 
         if hasattr(dataset, 'data_kwargs') and exists(dataset.data_kwargs):
             assert beartype_isinstance(dataset.data_kwargs, List[str])
             self.data_kwargs = dataset.data_kwargs
         else:
             self.data_kwargs = data_kwargs
->>>>>>> upstream/main
 
         (
             self.model,
