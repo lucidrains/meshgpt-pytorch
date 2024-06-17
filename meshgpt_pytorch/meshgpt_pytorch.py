@@ -635,6 +635,10 @@ class MeshAutoencoder(Module):
         self.commit_loss_weight = commit_loss_weight
         self.bin_smooth_blur_sigma = bin_smooth_blur_sigma
 
+    @property
+    def device(self):
+        return next(self.parameters()).device
+    
     @classmethod
     def _from_pretrained(
         cls,
