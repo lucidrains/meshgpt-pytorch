@@ -1,12 +1,10 @@
 from pathlib import Path
 from functools import partial
 from packaging import version
-from contextlib import nullcontext, contextmanager
+from contextlib import nullcontext
 
 import torch
-from torch import nn, Tensor
 from torch.nn import Module
-import torch.nn.functional as F
 from torch.utils.data import Dataset, DataLoader
 from torch.optim.lr_scheduler import _LRScheduler
 
@@ -18,9 +16,9 @@ from pytorch_custom_utils import (
 from accelerate import Accelerator
 from accelerate.utils import DistributedDataParallelKwargs
 
-from beartype import beartype
-from beartype.door import is_bearable
-from beartype.typing import Optional, Tuple, Type, List
+
+from beartype.typing import Tuple, Type, List
+from meshgpt_pytorch.typing import typecheck, beartype_isinstance
 
 from ema_pytorch import EMA
 
@@ -66,7 +64,7 @@ def maybe_del(d: dict, *keys):
 # autoencoder trainer
 
 class MeshAutoencoderTrainer(Module):
-    @beartype
+    @typecheck
     def __init__(
         self,
         model: MeshAutoencoder,
@@ -80,7 +78,9 @@ class MeshAutoencoderTrainer(Module):
         learning_rate: float = 1e-4,
         weight_decay: float = 0.,
         max_grad_norm: float | None = None,
-        ema_kwargs: dict = dict(),
+        ema_kwargs: dict = dict(
+            use_foreach = True
+        ),
         scheduler: Type[_LRScheduler] | None = None,
         scheduler_kwargs: dict = dict(),
         accelerator_kwargs: dict = dict(),
@@ -144,7 +144,15 @@ class MeshAutoencoderTrainer(Module):
                 collate_fn = partial(custom_collate, pad_id = model.pad_id)
             )
 
+<<<<<<< HEAD
         self.data_kwargs = data_kwargs
+=======
+        if hasattr(dataset, 'data_kwargs') and exists(dataset.data_kwargs):
+            assert beartype_isinstance(dataset.data_kwargs, List[str])
+            self.data_kwargs = dataset.data_kwargs
+        else:
+            self.data_kwargs = data_kwargs
+>>>>>>> upstream/main
 
         (
             self.model,
@@ -417,7 +425,7 @@ class MeshAutoencoderTrainer(Module):
 # mesh transformer trainer
 
 class MeshTransformerTrainer(Module):
-    @beartype
+    @typecheck
     def __init__(
         self,
         model: MeshTransformer,
@@ -499,7 +507,15 @@ class MeshTransformerTrainer(Module):
                 collate_fn = partial(custom_collate, pad_id = model.pad_id)
             )
 
+<<<<<<< HEAD
         self.data_kwargs = data_kwargs
+=======
+        if hasattr(dataset, 'data_kwargs') and exists(dataset.data_kwargs):
+            assert beartype_isinstance(dataset.data_kwargs, List[str])
+            self.data_kwargs = dataset.data_kwargs
+        else:
+            self.data_kwargs = data_kwargs
+>>>>>>> upstream/main
 
         (
             self.model,
