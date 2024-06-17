@@ -26,7 +26,7 @@ setup(
     'classifier-free-guidance-pytorch>=0.6.7',
     'einops>=0.8.0',
     'einx[torch]>=0.3.0',
-    'ema-pytorch>=0.5.0',
+    'ema-pytorch>=0.5.1',
     'environs',
     'gateloop-transformer>=0.2.2',
     'jaxtyping',
