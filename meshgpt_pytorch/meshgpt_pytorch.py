@@ -13,7 +13,6 @@ from torch.cuda.amp import autocast
 
 from pytorch_custom_utils import save_load
 
-
 from beartype.typing import Tuple, Callable, List, Dict, Any
 from meshgpt_pytorch.typing import Float, Int, Bool, typecheck
 
@@ -419,13 +418,8 @@ class GateLoopBlock(Module):
 # main classes
 
 @save_load(version = __version__)
-<<<<<<< HEAD
-class MeshAutoencoder(Module, PyTorchModelHubMixin):
-    @beartype
-=======
 class MeshAutoencoder(Module):
     @typecheck
->>>>>>> upstream/main
     def __init__(
         self,
         num_discrete_coors = 128,
@@ -640,41 +634,6 @@ class MeshAutoencoder(Module):
 
         self.commit_loss_weight = commit_loss_weight
         self.bin_smooth_blur_sigma = bin_smooth_blur_sigma
-        
-    @classmethod
-    def _from_pretrained(
-        cls,
-        *,
-        model_id: str,
-        revision: Optional[str],
-        cache_dir: Optional[Union[str, Path]],
-        force_download: bool,
-        proxies: Optional[Dict],
-        resume_download: bool,
-        local_files_only: bool,
-        token: Union[str, bool, None],
-        map_location: str = "cpu",
-        strict: bool = False,
-        **model_kwargs,
-    ): 
-        model_filename = "mesh-autoencoder.bin" 
-        model_file = Path(model_id) / model_filename 
-        if not model_file.exists(): 
-            model_file = hf_hub_download(
-                repo_id=model_id,
-                filename=model_filename,
-                revision=revision,
-                cache_dir=cache_dir,
-                force_download=force_download,
-                proxies=proxies,
-                resume_download=resume_download,
-                token=token,
-                local_files_only=local_files_only,
-            )    
-        model = cls.init_and_load(model_file,strict=strict) 
-        model.to(map_location)
-        return model
-    
 
     @classmethod
     def _from_pretrained(
@@ -1116,13 +1075,8 @@ class MeshAutoencoder(Module):
         return recon_faces, total_loss, loss_breakdown
 
 @save_load(version = __version__)
-<<<<<<< HEAD
 class MeshTransformer(Module, PyTorchModelHubMixin):
-    @beartype
-=======
-class MeshTransformer(Module,PyTorchModelHubMixin):
     @typecheck
->>>>>>> upstream/main
     def __init__(
         self,
         autoencoder: MeshAutoencoder,
@@ -1140,12 +1094,13 @@ class MeshTransformer(Module,PyTorchModelHubMixin):
         cross_attn_num_mem_kv = 4, # needed for preventing nan when dropping out text condition
         dropout = 0.,
         coarse_pre_gateloop_depth = 2,
+        coarse_adaptive_rmsnorm = False,
         fine_pre_gateloop_depth = 2,
         gateloop_use_heinsen = False,
         fine_attn_depth = 2,
         fine_attn_dim_head = 32,
         fine_attn_heads = 8,
-        fine_cross_attend_text = False,
+        fine_cross_attend_text = False, # additional conditioning - fine transformer cross attention to text tokens
         pad_id = -1,
         num_sos_tokens = None,
         condition_on_text = False,
@@ -1223,6 +1178,8 @@ class MeshTransformer(Module,PyTorchModelHubMixin):
         # main autoregressive attention network
         # attending to a face token
 
+        self.coarse_adaptive_rmsnorm = coarse_adaptive_rmsnorm
+
         self.decoder = Decoder(
             dim = dim,
             depth = attn_depth,
@@ -1231,6 +1188,8 @@ class MeshTransformer(Module,PyTorchModelHubMixin):
             attn_flash = flash_attn,
             attn_dropout = dropout,
             ff_dropout = dropout,
+            use_adaptive_rmsnorm = coarse_adaptive_rmsnorm,
+            dim_condition = dim_text,
             cross_attend = condition_on_text,
             cross_attn_dim_context = cross_attn_dim_context,
             cross_attn_num_mem_kv = cross_attn_num_mem_kv,
@@ -1305,40 +1264,6 @@ class MeshTransformer(Module,PyTorchModelHubMixin):
                 local_files_only=local_files_only,
             )
 
-        model = cls.init_and_load(model_file,strict=strict) 
-        model.to(map_location)
-        return model
-
-    @classmethod
-    def _from_pretrained(
-        cls,
-        *,
-        model_id: str,
-        revision: Optional[str],
-        cache_dir: Optional[Union[str, Path]],
-        force_download: bool,
-        proxies: Optional[Dict],
-        resume_download: bool,
-        local_files_only: bool,
-        token: Union[str, bool, None],
-        map_location: str = "cpu",
-        strict: bool = False,
-        **model_kwargs,
-    ): 
-        model_filename = "mesh-transformer.bin" 
-        model_file = Path(model_id) / model_filename 
-        if not model_file.exists(): 
-            model_file = hf_hub_download(
-                repo_id=model_id,
-                filename=model_filename,
-                revision=revision,
-                cache_dir=cache_dir,
-                force_download=force_download,
-                proxies=proxies,
-                resume_download=resume_download,
-                token=token,
-                local_files_only=local_files_only,
-            )    
         model = cls.init_and_load(model_file,strict=strict) 
         model.to(map_location)
         return model
@@ -1537,6 +1462,11 @@ class MeshTransformer(Module,PyTorchModelHubMixin):
                 context = text_embed,
                 context_mask = text_mask
             )
+
+            if self.coarse_adaptive_rmsnorm:
+                attn_context_kwargs.update(
+                    condition = pooled_text_embed
+                )
 
         # take care of codes that may be flattened
 
