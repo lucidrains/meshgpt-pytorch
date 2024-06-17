@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from pathlib import Path
 from functools import partial
 from packaging import version
