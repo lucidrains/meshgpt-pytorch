@@ -175,24 +175,6 @@ class MeshAutoencoderTrainer(Module):
     def tokenize(self, *args, **kwargs):
         return self.ema_tokenizer.tokenize(*args, **kwargs)
 
-    @contextmanager
-    @beartype
-    def trackers(
-        self,
-        project_name: str,
-        run_name: Optional[str] = None,
-        hps: Optional[dict] = None
-    ):
-        assert self.use_wandb_tracking
-
-        self.accelerator.init_trackers(project_name, config = hps)
-
-        if exists(run_name):
-            self.accelerator.trackers[0].run.name = run_name
-
-        yield
-        self.accelerator.end_training()
-
     def log(self, **data_kwargs):
         self.accelerator.log(data_kwargs, step = self.step.item())
 
@@ -526,24 +508,6 @@ class MeshTransformerTrainer(Module):
         self.checkpoint_every = checkpoint_every
         self.checkpoint_folder = Path(checkpoint_folder)
         self.checkpoint_folder.mkdir(exist_ok = True, parents = True)
-
-    @contextmanager
-    @beartype
-    def trackers(
-        self,
-        project_name: str,
-        run_name: Optional[str] = None,
-        hps: Optional[dict] = None
-    ):
-        assert self.use_wandb_tracking
-
-        self.accelerator.init_trackers(project_name, config = hps)
-
-        if exists(run_name):
-            self.accelerator.trackers[0].run.name = run_name
-
-        yield
-        self.accelerator.end_training()
 
     def log(self, **data_kwargs):
         self.accelerator.log(data_kwargs, step = self.step.item())
