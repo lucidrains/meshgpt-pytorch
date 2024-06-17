@@ -1075,7 +1075,7 @@ class MeshAutoencoder(Module):
         return recon_faces, total_loss, loss_breakdown
 
 @save_load(version = __version__)
-class MeshTransformer(Module,PyTorchModelHubMixin):
+class MeshTransformer(Module, PyTorchModelHubMixin):
     @typecheck
     def __init__(
         self,
@@ -1094,12 +1094,13 @@ class MeshTransformer(Module,PyTorchModelHubMixin):
         cross_attn_num_mem_kv = 4, # needed for preventing nan when dropping out text condition
         dropout = 0.,
         coarse_pre_gateloop_depth = 2,
+        coarse_adaptive_rmsnorm = False,
         fine_pre_gateloop_depth = 2,
         gateloop_use_heinsen = False,
         fine_attn_depth = 2,
         fine_attn_dim_head = 32,
         fine_attn_heads = 8,
-        fine_cross_attend_text = False,
+        fine_cross_attend_text = False, # additional conditioning - fine transformer cross attention to text tokens
         pad_id = -1,
         num_sos_tokens = None,
         condition_on_text = False,
@@ -1177,6 +1178,8 @@ class MeshTransformer(Module,PyTorchModelHubMixin):
         # main autoregressive attention network
         # attending to a face token
 
+        self.coarse_adaptive_rmsnorm = coarse_adaptive_rmsnorm
+
         self.decoder = Decoder(
             dim = dim,
             depth = attn_depth,
@@ -1185,6 +1188,8 @@ class MeshTransformer(Module,PyTorchModelHubMixin):
             attn_flash = flash_attn,
             attn_dropout = dropout,
             ff_dropout = dropout,
+            use_adaptive_rmsnorm = coarse_adaptive_rmsnorm,
+            dim_condition = dim_text,
             cross_attend = condition_on_text,
             cross_attn_dim_context = cross_attn_dim_context,
             cross_attn_num_mem_kv = cross_attn_num_mem_kv,
@@ -1457,6 +1462,11 @@ class MeshTransformer(Module,PyTorchModelHubMixin):
                 context = text_embed,
                 context_mask = text_mask
             )
+
+            if self.coarse_adaptive_rmsnorm:
+                attn_context_kwargs.update(
+                    condition = pooled_text_embed
+                )
 
         # take care of codes that may be flattened
 
