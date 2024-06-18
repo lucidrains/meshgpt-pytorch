@@ -70,6 +70,7 @@ class MeshDataset(Dataset):
             data.append(item)  
         print(f"[MeshDataset] Loaded {len(data)} entries")
         return cls(data) 
+    
     def sort_dataset_keys(self):
         desired_order = ['vertices', 'faces', 'face_edges', 'texts','text_embeds','codes'] 
         self.data = [
@@ -132,8 +133,7 @@ class MeshDataset(Dataset):
         print(f"[MeshDataset] Generated codes for {len(self.data)} entries")
     
     def embed_texts(self, transformer : MeshTransformer, batch_size = 50): 
-        unique_texts = list(set(item['texts'] for item in self.data))
-        embeddings = []
+        unique_texts = list(set(item['texts'] for item in self.data)) 
         text_embedding_dict = {}
         for i in tqdm(range(0,len(unique_texts), batch_size)):
             batch_texts = unique_texts[i:i+batch_size]
@@ -150,4 +150,4 @@ class MeshDataset(Dataset):
                 del item['texts'] 
                 
         self.sort_dataset_keys()
-        print(f"[MeshDataset] Generated {len(embeddings)} text_embeddings") 
+        print(f"[MeshDataset] Generated {len(text_embedding_dict)} text_embeddings") 
