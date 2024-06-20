@@ -1157,6 +1157,7 @@ class MeshTransformer(Module, PyTorchModelHubMixin):
         self.conditioner = None
 
         cross_attn_dim_context = None
+        dim_text = None
 
         if condition_on_text:
             self.conditioner = TextEmbeddingReturner(
