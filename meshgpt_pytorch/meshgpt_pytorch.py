@@ -1098,6 +1098,7 @@ class MeshTransformer(Module, PyTorchModelHubMixin):
         cross_attn_num_mem_kv = 4, # needed for preventing nan when dropping out text condition
         dropout = 0.,
         coarse_pre_gateloop_depth = 2,
+        coarse_post_gateloop_depth = 0,
         coarse_adaptive_rmsnorm = False,
         fine_pre_gateloop_depth = 2,
         gateloop_use_heinsen = False,
@@ -1178,6 +1179,8 @@ class MeshTransformer(Module, PyTorchModelHubMixin):
         )
 
         self.coarse_gateloop_block = GateLoopBlock(dim, depth = coarse_pre_gateloop_depth, use_heinsen = gateloop_use_heinsen) if coarse_pre_gateloop_depth > 0 else None
+
+        self.coarse_post_gateloop_block = GateLoopBlock(dim, depth = coarse_post_gateloop_depth, use_heinsen = gateloop_use_heinsen) if coarse_post_gateloop_depth > 0 else None
 
         # main autoregressive attention network
         # attending to a face token
@@ -1560,8 +1563,9 @@ class MeshTransformer(Module, PyTorchModelHubMixin):
             coarse_cache,
             fine_cache,
             coarse_gateloop_cache,
+            coarse_post_gateloop_cache,
             fine_gateloop_cache
-        ) = cache if exists(cache) else ((None,) * 5)
+        ) = cache if exists(cache) else ((None,) * 6)
 
         if exists(cache):
             cached_face_codes_len = cached_attended_face_codes.shape[-2]
@@ -1597,6 +1601,10 @@ class MeshTransformer(Module, PyTorchModelHubMixin):
                 return_hiddens = True,
                 **attn_context_kwargs
             )
+
+            if exists(self.coarse_post_gateloop_block):
+                face_codes, coarse_post_gateloop_cache = self.coarse_post_gateloop_block(face_codes, cache = coarse_post_gateloop_cache)
+
         else:
             attended_face_codes = None
 
@@ -1717,6 +1725,7 @@ class MeshTransformer(Module, PyTorchModelHubMixin):
                 coarse_cache,
                 fine_cache,
                 coarse_gateloop_cache,
+                coarse_post_gateloop_cache,
                 fine_gateloop_cache
             )
 
