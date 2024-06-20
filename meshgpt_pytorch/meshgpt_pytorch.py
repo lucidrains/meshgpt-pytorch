@@ -1603,7 +1603,7 @@ class MeshTransformer(Module, PyTorchModelHubMixin):
             )
 
             if exists(self.coarse_post_gateloop_block):
-                face_codes, coarse_post_gateloop_cache = self.coarse_gateloop_block(face_codes, cache = coarse_post_gateloop_cache)
+                face_codes, coarse_post_gateloop_cache = self.coarse_post_gateloop_block(face_codes, cache = coarse_post_gateloop_cache)
 
         else:
             attended_face_codes = None
