@@ -38,6 +38,7 @@ def test_readme(adaptive_rmsnorm):
         fine_cross_attend_text = True,
         text_cond_with_film = False,
         condition_on_text = True,
+        coarse_post_gateloop_depth = 1,
         coarse_adaptive_rmsnorm = adaptive_rmsnorm
     )
 
