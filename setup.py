@@ -23,7 +23,7 @@ setup(
     'accelerate>=0.25.0',
     'beartype',
     "huggingface_hub>=0.21.4",
-    'classifier-free-guidance-pytorch>=0.6.7',
+    'classifier-free-guidance-pytorch>=0.6.8',
     'einops>=0.8.0',
     'einx[torch]>=0.3.0',
     'ema-pytorch>=0.5.1',
