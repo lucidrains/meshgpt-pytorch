@@ -1111,6 +1111,7 @@ class MeshTransformer(Module, PyTorchModelHubMixin):
         condition_on_text = False,
         text_cond_with_film = False,
         text_condition_model_types = ('t5',),
+        text_condition_model_kwargs = (dict(),),
         text_condition_cond_drop_prob = 0.25,
         quads = False,
     ):
@@ -1162,6 +1163,7 @@ class MeshTransformer(Module, PyTorchModelHubMixin):
         if condition_on_text:
             self.conditioner = TextEmbeddingReturner(
                 model_types = text_condition_model_types,
+                model_kwargs = text_condition_model_kwargs,
                 cond_drop_prob = text_condition_cond_drop_prob,
                 text_embed_pad_value = -1.
             )

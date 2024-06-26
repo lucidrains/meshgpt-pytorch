@@ -24,7 +24,7 @@ setup(
     'huggingface_hub>=0.21.4',
     'beartype',
     "huggingface_hub>=0.21.4",
-    'classifier-free-guidance-pytorch>=0.6.7',
+    'classifier-free-guidance-pytorch>=0.6.9',
     'einops>=0.8.0',
     'einx[torch]>=0.3.0',
     'ema-pytorch>=0.5.1',
