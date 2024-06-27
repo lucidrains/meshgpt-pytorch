@@ -2,21 +2,20 @@ from __future__ import annotations
 
 from pathlib import Path
 from functools import partial
+
 import torch
 from torch import Tensor
 from torch import is_tensor
-import torch.nn.functional as F
 from torch.utils.data import Dataset
 from torch.nn.utils.rnn import pad_sequence
 
-import numpy as np
 from numpy.lib.format import open_memmap
 
 from einops import rearrange, reduce
 from torch import nn, Tensor
 
-from beartype import beartype
-from beartype.typing import Tuple, List, Callable, Dict, Callable
+from beartype.typing import Tuple, List, Callable, Dict
+from meshgpt_pytorch.typing import typecheck
 
 from torchtyping import TensorType
 
@@ -40,7 +39,7 @@ Faces = TensorType['nf', 3, int]        # 3 vertices
 # you would decorate your Dataset class with this
 # and then change your `data_kwargs = ["text_embeds", "vertices", "faces"]`
 
-@beartype
+@typecheck
 def cache_text_embeds_for_dataset(
     embed_texts_fn: Callable[[List[str]], Tensor],
     max_text_len: int,
@@ -159,7 +158,7 @@ def cache_text_embeds_for_dataset(
 # you would decorate your Dataset class with this function
 # and then change your `data_kwargs = ["vertices", "faces", "face_edges"]`
 
-@beartype
+@typecheck
 def cache_face_edges_for_dataset(
     max_edges_len: int,
     cache_path: str = './face_edges_cache',
@@ -263,7 +262,7 @@ def cache_face_edges_for_dataset(
 # dataset
 
 class DatasetFromTransforms(Dataset):
-    @beartype
+    @typecheck
     def __init__(
         self,
         folder: str,

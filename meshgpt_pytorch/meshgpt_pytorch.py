@@ -11,12 +11,12 @@ import torch.nn.functional as F
 from torch.utils.checkpoint import checkpoint
 from torch.cuda.amp import autocast
 
-from torchtyping import TensorType
-
 from pytorch_custom_utils import save_load
 
-from beartype import beartype
 from beartype.typing import Tuple, Callable, List, Dict, Any
+from meshgpt_pytorch.typing import Float, Int, Bool, typecheck
+
+from huggingface_hub import PyTorchModelHubMixin, hf_hub_download
 
 from einops import rearrange, repeat, reduce, pack, unpack
 from einops.layers.torch import Rearrange
@@ -24,7 +24,6 @@ from einops.layers.torch import Rearrange
 from einx import get_at
 
 from x_transformers import Decoder
-from x_transformers.attend import Attend
 from x_transformers.x_transformers import RMSNorm, FeedForward, LayerIntermediates
 
 from x_transformers.autoregressive_wrapper import (
@@ -76,8 +75,8 @@ def divisible_by(num, den):
 def is_odd(n):
     return not divisible_by(n, 2)
 
-def is_empty(l):
-    return len(l) == 0
+def is_empty(x):
+    return len(x) == 0
 
 def is_tensor_empty(t: Tensor):
     return t.numel() == 0
@@ -154,8 +153,9 @@ def derive_angle(x, y, eps = 1e-5):
     return z.clip(-1 + eps, 1 - eps).arccos()
 
 @torch.no_grad()
+@typecheck
 def get_derived_face_features(
-    face_coords: TensorType['b', 'nf', 'nvf', 3, float]  # 3 or 4 vertices with 3 coordinates
+    face_coords: Float['b nf nvf 3']  # 3 or 4 vertices with 3 coordinates
 ):
     shifted_face_coords = torch.cat((face_coords[:, :, -1:], face_coords[:, :, :-1]), dim = 2)
 
@@ -176,7 +176,7 @@ def get_derived_face_features(
 
 # tensor helper functions
 
-@beartype
+@typecheck
 def discretize(
     t: Tensor,
     *,
@@ -192,7 +192,7 @@ def discretize(
 
     return t.round().long().clamp(min = 0, max = num_discrete - 1)
 
-@beartype
+@typecheck
 def undiscretize(
     t: Tensor,
     *,
@@ -208,7 +208,7 @@ def undiscretize(
     t /= num_discrete
     return t * (hi - lo) + lo
 
-@beartype
+@typecheck
 def gaussian_blur_1d(
     t: Tensor,
     *,
@@ -232,7 +232,7 @@ def gaussian_blur_1d(
     out = F.conv1d(t, kernel, padding = half_width, groups = channels)
     return rearrange(out, 'b c n -> b n c')
 
-@beartype
+@typecheck
 def scatter_mean(
     tgt: Tensor,
     indices: Tensor,
@@ -419,7 +419,7 @@ class GateLoopBlock(Module):
 
 @save_load(version = __version__)
 class MeshAutoencoder(Module):
-    @beartype
+    @typecheck
     def __init__(
         self,
         num_discrete_coors = 128,
@@ -635,15 +635,53 @@ class MeshAutoencoder(Module):
         self.commit_loss_weight = commit_loss_weight
         self.bin_smooth_blur_sigma = bin_smooth_blur_sigma
 
-    @beartype
+    @property
+    def device(self):
+        return next(self.parameters()).device
+    
+    @classmethod
+    def _from_pretrained(
+        cls,
+        *,
+        model_id: str,
+        revision: str | None,
+        cache_dir: str | Path | None,
+        force_download: bool,
+        proxies: Dict | None,
+        resume_download: bool,
+        local_files_only: bool,
+        token: str | bool | None,
+        map_location: str = "cpu",
+        strict: bool = False,
+        **model_kwargs,
+    ): 
+        model_filename = "mesh-autoencoder.bin" 
+        model_file = Path(model_id) / model_filename 
+        if not model_file.exists(): 
+            model_file = hf_hub_download(
+                repo_id=model_id,
+                filename=model_filename,
+                revision=revision,
+                cache_dir=cache_dir,
+                force_download=force_download,
+                proxies=proxies,
+                resume_download=resume_download,
+                token=token,
+                local_files_only=local_files_only,
+            )    
+        model = cls.init_and_load(model_file,strict=strict) 
+        model.to(map_location)
+        return model
+    
+    @typecheck
     def encode(
         self,
         *,
-        vertices:         TensorType['b', 'nv', 3, float],
-        faces:            TensorType['b', 'nf', 'nvf', int],
-        face_edges:       TensorType['b', 'e', 2, int],
-        face_mask:        TensorType['b', 'nf', bool],
-        face_edges_mask:  TensorType['b', 'e', bool],
+        vertices:         Float['b nv 3'],
+        faces:            Int['b nf nvf'],
+        face_edges:       Int['b e 2'],
+        face_mask:        Bool['b nf'],
+        face_edges_mask:  Bool['b e'],
         return_face_coordinates = False
     ):
         """
@@ -656,7 +694,6 @@ class MeshAutoencoder(Module):
         d - embed dim
         """
 
-        batch, num_vertices, num_coors, device = *vertices.shape, vertices.device
         _, num_faces, num_vertices_per_face = faces.shape
 
         assert self.num_vertices_per_face == num_vertices_per_face
@@ -737,18 +774,18 @@ class MeshAutoencoder(Module):
 
         return face_embed, discrete_face_coords
 
-    @beartype
+    @typecheck
     def quantize(
         self,
         *,
-        faces: TensorType['b', 'nf', 'nvf', int],
-        face_mask: TensorType['b', 'n', bool],
-        face_embed: TensorType['b', 'nf', 'd', float],
+        faces: Int['b nf nvf'],
+        face_mask: Bool['b n'],
+        face_embed: Float['b nf d'],
         pad_id = None,
         rvq_sample_codebook_temp = 1.
     ):
         pad_id = default(pad_id, self.pad_id)
-        batch, num_faces, device = *faces.shape[:2], faces.device
+        batch, device = faces.shape[0], faces.device
 
         max_vertex_index = faces.amax()
         num_vertices = int(max_vertex_index.item() + 1)
@@ -822,11 +859,11 @@ class MeshAutoencoder(Module):
 
         return face_embed_output, codes_output, commit_loss
 
-    @beartype
+    @typecheck
     def decode(
         self,
-        quantized: TensorType['b', 'n', 'd', float],
-        face_mask:  TensorType['b', 'n', bool]
+        quantized: Float['b n d'],
+        face_mask:  Bool['b n']
     ):
         conv_face_mask = rearrange(face_mask, 'b n -> b 1 n')
 
@@ -848,12 +885,12 @@ class MeshAutoencoder(Module):
 
         return rearrange(x, 'b d n -> b n d')
 
-    @beartype
+    @typecheck
     @torch.no_grad()
     def decode_from_codes_to_faces(
         self,
         codes: Tensor,
-        face_mask: TensorType['b', 'n', bool] | None = None,
+        face_mask: Bool['b n'] | None = None,
         return_discrete_codes = False
     ):
         codes = rearrange(codes, 'b ... -> b (...)')
@@ -928,13 +965,13 @@ class MeshAutoencoder(Module):
 
         return codes
 
-    @beartype
+    @typecheck
     def forward(
         self,
         *,
-        vertices:       TensorType['b', 'nv', 3, float],
-        faces:          TensorType['b', 'nf', 'nvf', int],
-        face_edges:     TensorType['b', 'e', 2, int] | None = None,
+        vertices:       Float['b nv 3'],
+        faces:          Int['b nf nvf'],
+        face_edges:     Int['b e 2'] | None = None,
         return_codes = False,
         return_loss_breakdown = False,
         return_recon_faces = False,
@@ -944,7 +981,7 @@ class MeshAutoencoder(Module):
         if not exists(face_edges):
             face_edges = derive_face_edges_from_faces(faces, pad_id = self.pad_id)
 
-        num_faces, num_face_edges, device = faces.shape[1], face_edges.shape[1], faces.device
+        device = faces.device
 
         face_mask = reduce(faces != self.pad_id, 'b nf c -> b nf', 'all')
         face_edges_mask = reduce(face_edges != self.pad_id, 'b e ij -> b e', 'all')
@@ -1042,8 +1079,8 @@ class MeshAutoencoder(Module):
         return recon_faces, total_loss, loss_breakdown
 
 @save_load(version = __version__)
-class MeshTransformer(Module):
-    @beartype
+class MeshTransformer(Module, PyTorchModelHubMixin):
+    @typecheck
     def __init__(
         self,
         autoencoder: MeshAutoencoder,
@@ -1061,17 +1098,20 @@ class MeshTransformer(Module):
         cross_attn_num_mem_kv = 4, # needed for preventing nan when dropping out text condition
         dropout = 0.,
         coarse_pre_gateloop_depth = 2,
+        coarse_post_gateloop_depth = 0,
+        coarse_adaptive_rmsnorm = False,
         fine_pre_gateloop_depth = 2,
         gateloop_use_heinsen = False,
         fine_attn_depth = 2,
         fine_attn_dim_head = 32,
         fine_attn_heads = 8,
-        fine_cross_attend_text = False,
+        fine_cross_attend_text = False, # additional conditioning - fine transformer cross attention to text tokens
         pad_id = -1,
         num_sos_tokens = None,
         condition_on_text = False,
         text_cond_with_film = False,
         text_condition_model_types = ('t5',),
+        text_condition_model_kwargs = (dict(),),
         text_condition_cond_drop_prob = 0.25,
         quads = False,
     ):
@@ -1118,10 +1158,12 @@ class MeshTransformer(Module):
         self.conditioner = None
 
         cross_attn_dim_context = None
+        dim_text = None
 
         if condition_on_text:
             self.conditioner = TextEmbeddingReturner(
                 model_types = text_condition_model_types,
+                model_kwargs = text_condition_model_kwargs,
                 cond_drop_prob = text_condition_cond_drop_prob,
                 text_embed_pad_value = -1.
             )
@@ -1141,8 +1183,12 @@ class MeshTransformer(Module):
 
         self.coarse_gateloop_block = GateLoopBlock(dim, depth = coarse_pre_gateloop_depth, use_heinsen = gateloop_use_heinsen) if coarse_pre_gateloop_depth > 0 else None
 
+        self.coarse_post_gateloop_block = GateLoopBlock(dim, depth = coarse_post_gateloop_depth, use_heinsen = gateloop_use_heinsen) if coarse_post_gateloop_depth > 0 else None
+
         # main autoregressive attention network
         # attending to a face token
+
+        self.coarse_adaptive_rmsnorm = coarse_adaptive_rmsnorm
 
         self.decoder = Decoder(
             dim = dim,
@@ -1152,6 +1198,8 @@ class MeshTransformer(Module):
             attn_flash = flash_attn,
             attn_dropout = dropout,
             ff_dropout = dropout,
+            use_adaptive_rmsnorm = coarse_adaptive_rmsnorm,
+            dim_condition = dim_text,
             cross_attend = condition_on_text,
             cross_attn_dim_context = cross_attn_dim_context,
             cross_attn_num_mem_kv = cross_attn_num_mem_kv,
@@ -1164,7 +1212,7 @@ class MeshTransformer(Module):
 
         # address a weakness in attention
 
-        self.fine_gateloop_block = GateLoopBlock(dim, depth = fine_pre_gateloop_depth) if fine_pre_gateloop_depth > 0 else None
+        self.fine_gateloop_block = GateLoopBlock(dim, depth = fine_pre_gateloop_depth, use_heinsen = gateloop_use_heinsen) if fine_pre_gateloop_depth > 0 else None
 
         # decoding the vertices, 2-stage hierarchy
 
@@ -1193,12 +1241,48 @@ class MeshTransformer(Module):
 
         self.pad_id = pad_id
         autoencoder.pad_id = pad_id
+    
+    @classmethod
+    def _from_pretrained(
+        cls,
+        *,
+        model_id: str,
+        revision: str | None,
+        cache_dir: str | Path | None,
+        force_download: bool,
+        proxies: Dict | None,
+        resume_download: bool,
+        local_files_only: bool,
+        token: str | bool | None,
+        map_location: str = "cpu",
+        strict: bool = False,
+        **model_kwargs,
+    ): 
+        model_filename = "mesh-transformer.bin" 
+        model_file = Path(model_id) / model_filename 
+
+        if not model_file.exists(): 
+            model_file = hf_hub_download(
+                repo_id=model_id,
+                filename=model_filename,
+                revision=revision,
+                cache_dir=cache_dir,
+                force_download=force_download,
+                proxies=proxies,
+                resume_download=resume_download,
+                token=token,
+                local_files_only=local_files_only,
+            )
+
+        model = cls.init_and_load(model_file,strict=strict) 
+        model.to(map_location)
+        return model
 
     @property
     def device(self):
         return next(self.parameters()).device
 
-    @beartype
+    @typecheck
     @torch.no_grad()
     def embed_texts(self, texts: str | List[str]):
         single_text = not isinstance(texts, list)
@@ -1215,7 +1299,7 @@ class MeshTransformer(Module):
 
     @eval_decorator
     @torch.no_grad()
-    @beartype
+    @typecheck
     def generate(
         self,
         prompt: Tensor | None = None,
@@ -1334,9 +1418,9 @@ class MeshTransformer(Module):
     def forward(
         self,
         *,
-        vertices:       TensorType['b', 'nv', 3, int],
-        faces:          TensorType['b', 'nf', 'nvf', int],
-        face_edges:     TensorType['b', 'e', 2, int] | None = None,
+        vertices:       Int['b nv 3'],
+        faces:          Int['b nf nvf'],
+        face_edges:     Int['b e 2'] | None = None,
         codes:          Tensor | None = None,
         cache:          LayerIntermediates | None = None,
         **kwargs
@@ -1388,6 +1472,11 @@ class MeshTransformer(Module):
                 context = text_embed,
                 context_mask = text_mask
             )
+
+            if self.coarse_adaptive_rmsnorm:
+                attn_context_kwargs.update(
+                    condition = pooled_text_embed
+                )
 
         # take care of codes that may be flattened
 
@@ -1477,8 +1566,9 @@ class MeshTransformer(Module):
             coarse_cache,
             fine_cache,
             coarse_gateloop_cache,
+            coarse_post_gateloop_cache,
             fine_gateloop_cache
-        ) = cache if exists(cache) else ((None,) * 5)
+        ) = cache if exists(cache) else ((None,) * 6)
 
         if exists(cache):
             cached_face_codes_len = cached_attended_face_codes.shape[-2]
@@ -1514,6 +1604,10 @@ class MeshTransformer(Module):
                 return_hiddens = True,
                 **attn_context_kwargs
             )
+
+            if exists(self.coarse_post_gateloop_block):
+                face_codes, coarse_post_gateloop_cache = self.coarse_post_gateloop_block(face_codes, cache = coarse_post_gateloop_cache)
+
         else:
             attended_face_codes = None
 
@@ -1634,6 +1728,7 @@ class MeshTransformer(Module):
                 coarse_cache,
                 fine_cache,
                 coarse_gateloop_cache,
+                coarse_post_gateloop_cache,
                 fine_gateloop_cache
             )
 
