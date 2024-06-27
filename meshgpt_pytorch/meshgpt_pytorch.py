@@ -527,7 +527,7 @@ class MeshAutoencoder(Module):
 
         self.project_in = nn.Linear(init_dim, dim_codebook)
 
-        # initial sage conv 
+        # initial sage conv
         init_encoder_dim, *encoder_dims_through_depth = encoder_dims_through_depth
         curr_dim = init_encoder_dim
 
