@@ -33,6 +33,7 @@ setup(
     'local-attention>=1.9.0',
     'numpy',
     'pytorch-custom-utils>=0.0.9',
+    'rotary-embedding-torch>=0.6.4',
     'taylor-series-linear-attention>=0.1.6',
     'torch>=2.1',
     'torch_geometric',
