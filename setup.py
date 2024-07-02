@@ -20,6 +20,7 @@ setup(
     'mesh generation'
   ],
   install_requires=[
+    'matplotlib',
     'accelerate>=0.25.0',
     'huggingface_hub>=0.21.4',
     'beartype',
@@ -33,14 +34,13 @@ setup(
     'jaxtyping',
     'local-attention>=1.9.0',
     'numpy',
-    'matplotlib',
-    'pytorch-custom-utils>=0.0.20',
+    'pytorch-custom-utils>=0.0.9',
     'taylor-series-linear-attention>=0.1.6',
     'torch>=2.1',
     'torch_geometric',
     'tqdm',
     'vector-quantize-pytorch>=1.14.22',
-    'x-transformers>=1.30.19',
+    'x-transformers>=1.30.19,<1.31',
   ],
   setup_requires=[
     'pytest-runner',
