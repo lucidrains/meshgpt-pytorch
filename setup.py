@@ -21,6 +21,7 @@ setup(
   ],
   install_requires=[
     'accelerate>=0.25.0',
+    'huggingface_hub>=0.21.4',
     'beartype',
     "huggingface_hub>=0.21.4",
     'classifier-free-guidance-pytorch>=0.6.10',
@@ -32,7 +33,8 @@ setup(
     'jaxtyping',
     'local-attention>=1.9.0',
     'numpy',
-    'pytorch-custom-utils>=0.0.9',
+    'matplotlib',
+    'pytorch-custom-utils>=0.0.20',
     'taylor-series-linear-attention>=0.1.6',
     'torch>=2.1',
     'torch_geometric',
