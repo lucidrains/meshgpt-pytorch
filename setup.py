@@ -30,7 +30,7 @@ setup(
     'environs',
     'gateloop-transformer>=0.2.2',
     'jaxtyping',
-    'local-attention>=1.9.0',
+    'local-attention>=1.9.8',
     'numpy',
     'pytorch-custom-utils>=0.0.9',
     'rotary-embedding-torch>=0.6.4',
