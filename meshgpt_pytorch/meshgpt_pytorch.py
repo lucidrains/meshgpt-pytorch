@@ -157,7 +157,12 @@ def derive_angle(x, y, eps = 1e-5):
 def get_derived_face_features(
     face_coords: Float['b nf nvf 3']  # 3 or 4 vertices with 3 coordinates
 ):
-    shifted_face_coords = torch.cat((face_coords[:, :, -1:], face_coords[:, :, :-1]), dim = 2)
+    is_quad = face_coords.shape[-2] == 4
+    face_coords_shift = 2 if is_quad else 1 # @sbriseid says quads need to be shifted by 2
+
+    # shift face coordinates depending on triangles or quads
+
+    shifted_face_coords = torch.roll(face_coords, face_coords_shift, dims = (2,))
 
     angles  = derive_angle(face_coords, shifted_face_coords)
 
