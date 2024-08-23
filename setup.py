@@ -20,6 +20,7 @@ setup(
     'mesh generation'
   ],
   install_requires=[
+    'matplotlib',
     'accelerate>=0.25.0',
     'beartype',
     "huggingface_hub>=0.21.4",

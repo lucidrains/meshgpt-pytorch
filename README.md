@@ -6,188 +6,52 @@ Implementation of <a href="https://arxiv.org/abs/2311.15475">MeshGPT</a>, SOTA M
 
 Will also add text conditioning, for eventual text-to-3d asset
 
-Please join <a href="https://discord.gg/xBPBXfcFHd"><img alt="Join us on Discord" src="https://img.shields.io/discord/823813159592001537?color=5865F2&logo=discord&logoColor=white"></a> if you are interested in collaborating with others to replicate this work
 
-Update: <a href="https://github.com/MarcusLoppe">Marcus</a> has trained and uploaded <a href="https://huggingface.co/MarcusLoren/MeshGPT-preview">a working model</a> to 🤗 Huggingface!
+Please visit the orginal repo for more details: 
+https://github.com/lucidrains/meshgpt-pytorch
+ 
+### Data sources:
+#### ModelNet40: https://www.kaggle.com/datasets/balraj98/modelnet40-princeton-3d-object-dataset/data
 
-## Appreciation
+#### ShapeNet - [Extracted model labels](https://github.com/MarcusLoppe/meshgpt-pytorch/blob/main/shapenet_labels.json) Repository: https://huggingface.co/datasets/ShapeNet/shapenetcore-gltf
 
-- <a href="https://stability.ai/">StabilityAI</a>, <a href="https://a16z.com/supporting-the-open-source-ai-community/">A16Z Open Source AI Grant Program</a>, and <a href="https://huggingface.co/">🤗 Huggingface</a> for the generous sponsorships, as well as my other sponsors, for affording me the independence to open source current artificial intelligence research
+#### Objaverse - [Downloader](https://github.com/MarcusLoppe/Objaverse-downloader/tree/main) Repository: https://huggingface.co/datasets/allenai/objaverse
+ 
+## Pre-trained autoencoder on the Objaverse dataset (14k meshes, only meshes that have max 250 faces): 
+This is contains only autoencoder model, I'm currently training the transformer model.<br/>
+Visit the discussions [Pre-trained autoencoder & data sourcing](https://github.com/lucidrains/meshgpt-pytorch/discussions/66) for more information about the training and details about the progression.
 
-- <a href="https://github.com/arogozhnikov/einops">Einops</a> for making my life easy
+https://drive.google.com/drive/folders/1C1l5QrCtg9UulMJE5n_on4A9O9Gn0CC5?usp=sharing
 
-- <a href="https://github.com/MarcusLoppe">Marcus</a> for the initial code review (pointing out some missing derived features) as well as running the first successful end-to-end experiments
+<br/>
+The auto-encoder results shows that it's possible to compress many mesh models into tokens which then can be decoded and reconstruct a mesh near perfection!<br/>
+The auto-encoder was trained for 9 epochs for 20hrs on a single P100 GPU.<br/><br/>
 
-- <a href="https://github.com/MarcusLoppe">Marcus</a> for the <a href="https://github.com/lucidrains/meshgpt-pytorch/issues/18#issuecomment-1859214710">first successful training</a> of a collection of shapes conditioned on labels
-
-- <a href="https://github.com/qixuema">Quexi Ma</a> for finding numerous bugs with automatic eos handling
-
-- <a href="https://github.com/thuliu-yt16">Yingtian</a> for finding a bug with the gaussian blurring of the positions for spatial label smoothing
-
-- <a href="https://github.com/MarcusLoppe">Marcus</a> yet again for running the experiments to validate that it is possible to extend the system from triangles to <a href="https://github.com/lucidrains/meshgpt-pytorch/issues/54#issuecomment-1906789076">quads</a>
-
-- <a href="https://github.com/MarcusLoppe">Marcus</a> for identifying <a href="https://github.com/lucidrains/meshgpt-pytorch/issues/80">an issue</a> with text conditioning and for running all the experiments that led to it being resolved
-
-## Install
-
-```bash
-$ pip install meshgpt-pytorch
-```
-
-## Usage
-
-```python
-import torch
-
-from meshgpt_pytorch import (
-    MeshAutoencoder,
-    MeshTransformer
-)
-
-# autoencoder
-
-autoencoder = MeshAutoencoder(
-    num_discrete_coors = 128
-)
-
-# mock inputs
-
-vertices = torch.randn((2, 121, 3))            # (batch, num vertices, coor (3))
-faces = torch.randint(0, 121, (2, 64, 3))      # (batch, num faces, vertices (3))
-
-# make sure faces are padded with `-1` for variable lengthed meshes
-
-# forward in the faces
-
-loss = autoencoder(
-    vertices = vertices,
-    faces = faces
-)
-
-loss.backward()
-
-# after much training...
-# you can pass in the raw face data above to train a transformer to model this sequence of face vertices
-
-transformer = MeshTransformer(
-    autoencoder,
-    dim = 512,
-    max_seq_len = 768
-)
-
-loss = transformer(
-    vertices = vertices,
-    faces = faces
-)
-
-loss.backward()
-
-# after much training of transformer, you can now sample novel 3d assets
-
-faces_coordinates, face_mask = transformer.generate()
-
-# (batch, num faces, vertices (3), coordinates (3)), (batch, num faces)
-# now post process for the generated 3d asset
+The more compute heavy part is to train a transformer that can use these tokens learn the auto-encoder 'language'.<br/>
+Using the codes as a vocabablity and learn the relationship between the the codes and it's ordering requires a lot compute to train compared to the auto-encoder.<br/>
+So by using a single P100 GPU it will probaly take a few weeks till I can get out a pre-trained transformer. 
+<br/>
+Let me know if you wish to donate any compute or I can provide you with the dataset + training notebook.
+<br/><br/>
 
 ```
+num_layers = 23 
+autoencoder = MeshAutoencoder(     
+   decoder_dims_through_depth = (128,) * 3 + (192,) * 4 + (256,) * num_layers + (384,) * 3,   
+   dim_codebook = 192 , 
+   codebook_size = 16384 , 
+   dim_area_embed = 16,
+   dim_coor_embed = 16, 
+   dim_normal_embed = 16,
+   dim_angle_embed = 8,
 
-For <a href="https://www.youtube.com/watch?v=NXX0dKw4SjI">text-conditioned 3d shape synthesis</a>, simply set `condition_on_text = True` on your `MeshTransformer`, and then pass in your list of descriptions as the `texts` keyword argument
-
-ex.
-```python
-transformer = MeshTransformer(
-    autoencoder,
-    dim = 512,
-    max_seq_len = 768,
-    condition_on_text = True
-)
-
-
-loss = transformer(
-    vertices = vertices,
-    faces = faces,
-    texts = ['a high chair', 'a small teapot'],
-)
-
-loss.backward()
-
-# after much training of transformer, you can now sample novel 3d assets conditioned on text
-
-faces_coordinates, face_mask = transformer.generate(
-    texts = ['a long table'],
-    cond_scale = 3.  # a cond_scale > 1. will enable classifier free guidance - can be placed anywhere from 3. - 10.
-)
-
+   attn_decoder_depth = 8,
+   attn_encoder_depth = 4
+ ).to("cuda")    
 ```
 
-If you want to tokenize meshes, for use in your multimodal transformer, simply invoke `.tokenize` on your autoencoder (or same method on autoencoder trainer instance for the exponentially smoothed model)
-
-```python
-
-mesh_token_ids = autoencoder.tokenize(
-    vertices = vertices,
-    faces = faces
-)
-
-# (batch, num face vertices, residual quantized layer)
-```
-
-## Typecheck
-
-At the project root, run
-
-```bash
-$ cp .env.sample .env
-```
-
-## Todo
-
-- [x] autoencoder
-    - [x] encoder sageconv with torch geometric
-    - [x] proper scatter mean accounting for padding for meaning the vertices and RVQ the vertices before gathering back for decoder
-    - [x] complete decoder and reconstruction loss + commitment loss
-    - [x] handle variable lengthed faces
-    - [x] add option to use residual LFQ, latest quantization development that scales code utilization
-    - [x] xcit linear attention in encoder and decoder
-    - [x] figure out how to auto-derive `face_edges` directly from faces and vertices
-    - [x] embed any derived values (area, angles, etc) from the vertices before sage convs
-    - [ ] add an extra graph conv stage in the encoder, where vertices are enriched with their connected vertex neighbors, before aggregating into faces. make optional
-    - [ ] allow for encoder to noise the vertices, so autoencoder is a bit denoising. consider conditioning decoder on noise level, if varying
-
-- [ ] transformer
-    - [x] properly mask out eos logit during generation
-    - [x] make sure it trains
-        - [x] take care of sos token automatically
-        - [x] take care of eos token automatically if sequence length or mask is passed in
-    - [x] handle variable lengthed faces
-        - [x] on forwards
-        - [x] on generation, do all eos logic + substitute everything after eos with pad id
-    - [x] generation + cache kv
-
-- [x] trainer wrapper with hf accelerate
-    - [x] autoencoder - take care of ema
-    - [x] transformer
-
-- [x] text conditioning using own CFG library
-    - [x] complete preliminary text conditioning
-    - [x]  make sure CFG library can support passing in arguments to the two separate calls when cond scaling (as well as aggregating their outputs)
-    - [ ] polish up the magic dataset decorator and see if it can be moved to CFG library
-- [x] hierarchical transformers (using the RQ transformer)
-- [x] fix caching in simple gateloop layer in other repo
-- [x] local attention
-- [x] fix kv caching for two-staged hierarchical transformer - 7x faster now, and faster than original non-hierarchical transformer
-- [x] fix caching for gateloop layers
-- [x] allow for customization of model dimensions of fine vs coarse attention network
-- [x] figure out if autoencoder is really necessary - it is necessary, ablations are in the paper
-    - [x] when mesh discretizer is passed in, one can inject inter-face attention with the relative distance
-    - [x] additional embeddings (angles, area, normal), can also be appended before coarse transformer attention
-
-- [ ] make transformer efficient
-    - [ ] reversible networks
-
-- [ ] speculative decoding option
-
-- [ ] spend a day on documentation
+#### Results, it's about 14k models so with the limited training time and hardware It's a great result.
+![bild](https://github.com/lucidrains/meshgpt-pytorch/assets/65302107/18949b70-a982-4d22-9346-0f40ecf21cae)
 
 ## Citations
 

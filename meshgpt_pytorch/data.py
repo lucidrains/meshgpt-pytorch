@@ -12,6 +12,7 @@ from torch.nn.utils.rnn import pad_sequence
 from numpy.lib.format import open_memmap
 
 from einops import rearrange, reduce
+from torch import nn, Tensor
 
 from beartype.typing import Tuple, List, Callable, Dict
 from meshgpt_pytorch.typing import typecheck, Float, Int
@@ -358,6 +359,7 @@ def custom_collate(data, pad_id = -1):
             datum = pad_sequence(datum, batch_first = True, padding_value = pad_id)
         else:
             datum = list(datum)
+            output.append(datum)
 
         output.append(datum)
 
