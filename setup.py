@@ -35,7 +35,7 @@ setup(
     'pytorch-custom-utils>=0.0.9',
     'rotary-embedding-torch>=0.6.4',
     'sentencepiece',
-    'taylor-series-linear-attention>=0.1.6',
+    'taylor-series-linear-attention==0.1.11',
     'torch>=2.1',
     'torch_geometric',
     'tqdm',
