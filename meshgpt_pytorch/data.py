@@ -14,9 +14,7 @@ from numpy.lib.format import open_memmap
 from einops import rearrange, reduce
 
 from beartype.typing import Tuple, List, Callable, Dict
-from meshgpt_pytorch.typing import typecheck
-
-from torchtyping import TensorType
+from meshgpt_pytorch.typing import typecheck, Float, Int
 
 from pytorch_custom_utils.utils import pad_or_slice_to
 
@@ -30,8 +28,8 @@ def identity(t):
 
 # constants
 
-Vertices = TensorType['nv', 3, float]   # 3 coordinates
-Faces = TensorType['nf', 3, int]        # 3 vertices
+Vertices = Float['nv 3']   # 3 coordinates
+Faces = Float['nf 3']      # 3 vertices
 
 # decorator for auto-caching texts -> text embeds
 
@@ -297,11 +295,11 @@ class DatasetFromTransforms(Dataset):
 # tensor helper functions
 
 def derive_face_edges_from_faces(
-    faces: TensorType['b', 'nf', 3, int],
+    faces: Int['b nf 3'],
     pad_id = -1,
     neighbor_if_share_one_vertex = False,
     include_self = True
-) -> TensorType['b', 'e', 2, int]:
+) -> Int['b e 2']:
 
     is_one_face, device = faces.ndim == 2, faces.device
 
