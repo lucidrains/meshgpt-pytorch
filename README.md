@@ -115,7 +115,8 @@ loss.backward()
 
 faces_coordinates, face_mask = transformer.generate(
     texts = ['a long table'],
-    cond_scale = 3.  # a cond_scale > 1. will enable classifier free guidance - can be placed anywhere from 3. - 10.
+    cond_scale = 8.,  # a cond_scale > 1. will enable classifier free guidance - can be placed anywhere from 3. - 10.
+    remove_parallel_component = True # from https://arxiv.org/abs/2410.02416
 )
 
 ```
