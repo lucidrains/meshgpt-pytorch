@@ -39,7 +39,7 @@ setup(
     'torch>=2.1',
     'torch_geometric',
     'tqdm',
-    'vector-quantize-pytorch>=1.14.22',
+    'vector-quantize-pytorch>=1.18.1',
     'x-transformers>=1.30.19,<1.31',
   ],
   setup_requires=[

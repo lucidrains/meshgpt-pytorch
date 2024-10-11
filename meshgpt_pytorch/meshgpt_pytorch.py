@@ -590,6 +590,7 @@ class MeshAutoencoder(Module):
                 codebook_size = codebook_size,
                 shared_codebook = True,
                 commitment_weight = 1.,
+                rotation_trick = True,
                 stochastic_sample_codes = rvq_stochastic_sample_codes,
                 **rvq_kwargs,
                 **rq_kwargs
