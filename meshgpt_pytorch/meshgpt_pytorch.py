@@ -457,6 +457,7 @@ class MeshAutoencoder(Module):
             quantize_dropout = True,
             quantize_dropout_cutoff_index = 1,
             quantize_dropout_multiple_of = 1,
+            experimental_softplus_entropy_loss=True,
         ),
         rvq_kwargs: dict = dict(
             kmeans_init = True,
