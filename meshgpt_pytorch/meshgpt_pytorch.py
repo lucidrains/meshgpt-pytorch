@@ -457,7 +457,6 @@ class MeshAutoencoder(Module):
             quantize_dropout = True,
             quantize_dropout_cutoff_index = 1,
             quantize_dropout_multiple_of = 1,
-            experimental_softplus_entropy_loss=True,
         ),
         rvq_kwargs: dict = dict(
             kmeans_init = True,
@@ -465,7 +464,8 @@ class MeshAutoencoder(Module):
         ),
         rlfq_kwargs: dict = dict(
             frac_per_sample_entropy = 1.,
-            soft_clamp_input_value = 10.
+            soft_clamp_input_value = 10.,
+            experimental_softplus_entropy_loss = True,
         ),
         rvq_stochastic_sample_codes = True,
         sageconv_kwargs: dict = dict(
@@ -1103,7 +1103,9 @@ class MeshTransformer(Module, PyTorchModelHubMixin):
         attn_heads = 16,
         attn_kwargs: dict = dict(
             ff_glu = True,
-            attn_num_mem_kv = 4
+            attn_num_mem_kv = 4,
+            add_value_residual = True,
+            learned_value_residual_mix = True
         ),
         cross_attn_num_mem_kv = 4, # needed for preventing nan when dropping out text condition
         dropout = 0.,

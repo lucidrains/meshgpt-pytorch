@@ -40,7 +40,7 @@ setup(
     'torch_geometric',
     'tqdm',
     'vector-quantize-pytorch>=1.18.1',
-    'x-transformers>=1.30.19,<1.31',
+    'x-transformers>=1.42.23',
   ],
   setup_requires=[
     'pytest-runner',
